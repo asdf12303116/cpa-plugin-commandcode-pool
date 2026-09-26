@@ -20,8 +20,8 @@ API Key。目的是让你直接在 CPA 面板里回答“哪个 CommandCode key 
   赠送额度、低额度告警状态。
 - **重置周期用量：** 5 小时与每周窗口的 `used`、`cap`、剩余额度、百分比、重置时间戳
   与实时倒计时。
-- **计费周期汇总：** 来自 `/alpha/usage/summary` 的请求数、成功率、输入/输出/总
-  token、额度成本。
+- **计费周期花费：** 来自 `/alpha/usage/summary` 的额度成本；请求数/token/成功率仅作为
+  次要诊断信息保留 —— CommandCode 的限额是按额度金额而非请求数计算的。
 - **共享额度池识别：** 同一订阅下签发的多个 API Key 共享一个额度池，会被归组展示。
 - **管理 API + 面板页：** 可在 CPA Manager Plus 插件页或直接用 JSON 查看。
 - **失败安全：** 单个接口失败时保留上一次读数并记录错误；过期数据会被标记为
@@ -68,14 +68,14 @@ plugins:
 
 ```sh
 make test
-make build VERSION=0.2.0
-make build VERSION=0.2.0 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
-make package VERSION=0.2.0                                       # 生成插件商店 zip 与校验和
-make package VERSION=0.2.0 ARCHS="amd64 arm64"                   # 两种架构
+make build VERSION=0.2.1
+make build VERSION=0.2.1 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
+make package VERSION=0.2.1                                       # 生成插件商店 zip 与校验和
+make package VERSION=0.2.1 ARCHS="amd64 arm64"                   # 两种架构
 ```
 
-将 `dist/commandcode-pool-v0.2.0.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
-（arm64 使用 `dist/commandcode-pool-v0.2.0-arm64.so` 与 `plugins/linux/arm64/`）。
+将 `dist/commandcode-pool-v0.2.1.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
+（arm64 使用 `dist/commandcode-pool-v0.2.1-arm64.so` 与 `plugins/linux/arm64/`）。
 插件 ID 由文件名去掉版本后缀得到，因此打包出的 `commandcode-pool.so` 注册为
 `commandcode-pool`。
 
@@ -106,7 +106,6 @@ claude-api-key:
 | `usage-refresh-interval` | `3m` | 每个 key 的轮询间隔 |
 | `usage-stale-after` | `20m` | 超过该时长标记为过期数据 |
 | `include-usage-summary` | `true` | 每轮是否调用 `/alpha/usage/summary` |
-| `public-status` | `true` | 无需管理密钥即可读取面板数据 |
 | `warn-percent` | `80` | 面板警告阈值 |
 | `critical-percent` | `95` | 面板严重阈值 |
 | `user-agent` | `curl/8.7.1` | `/alpha/*` 请求使用的 User-Agent |
@@ -143,20 +142,30 @@ plugins:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-页面每个账号一行（紧凑单行表格），完整读数放在单元格的原生鼠标提示里：悬停即可看到
-used/cap/headroom、重置时间与倒计时、额度余额、套餐内部字段、token 与成本汇总、各接口
-错误，无需离开单行布局。
+页面每个账号一行（紧凑单行表格），完整读数放在单元格的原生鼠标提示里。列的组成取决于套餐类型，
+因为 CommandCode 对两类套餐的限流方式不同：
 
-**打开页面不需要管理密钥。** 页面数据默认来自无需鉴权的资源路由
-`/v0/resource/plugins/commandcode-pool/status.json`。若存在管理密钥（手动输入，或与
-**CPA Manager Plus** 同源时自动从其 `localStorage` 读取），页面会优先使用需要鉴权的
-Management API（含额外的内部标识符），并启用 **Refresh all** 按钮。
+| 套餐类型 | 列 |
+| --- | --- |
+| 订阅制（Go/GOAT/Pro/Max/Ultra/Teams） | Account, Plan, 5h, Weekly, Period, Spend, Health |
+| 按量付费（`individual-provider`） | Account, Plan, Credits, Spend, Health |
 
-设置 `public-status: false` 会关闭上述数据路由，此后页面重新需要管理密钥。
+订阅制由滚动额度窗口限流，所以行内以 `5h`、`Weekly` 为主（已用金额对比上限，重置时间与
+倒计时在 tooltip 里），并且**刻意不显示 credits 列** —— 订阅制没有充值/预付余额，显示
+只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示 `Credits`（剩余金额及充值
+金额）并隐藏窗口列。
+
+账号类型优先取 `windowLimits.limited`，缺失时回退到 `planId` 判断。
+
+每一列都是**金额口径** —— CommandCode 的限流基于额度/USD 等值而非请求数；请求数、token、
+成功率只作为 tooltip 中的诊断信息。
+
+**页面会自动加载，无需任何点击。** 打开时会依次从 CPA Manager Plus 持久化的鉴权存储、
+本页之前记住的 key、当前标签页中自动解析管理密钥并立即拉取数据；在输入框里粘贴或输入
+key 也会自动触发加载（回车同理），Load 按钮只是兜底。key 按浏览器记住，可用
+**Forget key** 清除。
 
 ## 管理 API
-
-### 需要鉴权的管理路由
 
 所有管理接口都需要 CPA 管理密钥。
 
@@ -166,21 +175,13 @@ Management API（含额外的内部标识符），并启用 **Refresh all** 按�
 | `GET /v0/management/plugins/commandcode-pool/plans` | 静态 `planId` 对照表 |
 | `POST /v0/management/plugins/commandcode-pool/refresh` | 立即触发一次刷新 |
 
-### 无需鉴权的资源路由
-
-用于面板取数据。仅在 `public-status: true`（默认）时可用，否则返回 `404`。
-
-| 路由 | 用途 |
-| --- | --- |
-| `GET /v0/resource/plugins/commandcode-pool/status` | 面板页面（静态壳） |
-| `GET /v0/resource/plugins/commandcode-pool/status.json` | 面板数据（已剔除内部标识符） |
-| `GET /v0/resource/plugins/commandcode-pool/plans` | `planId` 对照表 |
+资源路由 `/v0/resource/plugins/commandcode-pool/status` 只提供页面壳，不含任何账号数据。
 
 `status` 响应示例（节选）：
 
 ```json
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -292,7 +293,7 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 ```sh
 make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
-make package VERSION=0.2.0
+make package VERSION=0.2.1
 make clean
 ```
 
@@ -311,12 +312,9 @@ CI 还会检查格式，并为 amd64 与 arm64 编译 C ABI 动态库。推送 `
 - API Key 仅在内存中用于 `/alpha/*` 认证，绝不写入日志、状态输出或面板。
 - 账号运行状态以 API Key 的 SHA-256 哈希作为 key。
 - 面板/API 中的邮箱会被打码（`a6***3@gmail.com`）。
-- 当 `public-status: true`（默认）时，**用量数据**（套餐、额度余额、窗口用量、
-  请求/token/成本汇总、打码邮箱、账号名与 API Key 后缀）对任何能访问
-  `/v0/resource/plugins/commandcode-pool/...` 的人可读 —— 这些路由按 CPA 设计
-  （`pluginResourceNoRoute`）**不经过**管理鉴权。该响应已剔除账号/组织 UUID、
-  Stripe 订阅与价格 ID、组织消费限额，且绝不包含 API Key。若 CPA 的资源路径没有
-  额外的访问控制，请设置 `public-status: false`。
+- 资源页无需认证即可访问，但只包含静态页面壳：所有账号读数仍然需要 CPA 管理密钥。
+- 为便于下次自动加载，页面会把管理密钥记住在本浏览器的 `localStorage` 中；可用页面上的
+  **Forget key** 清除。
 
 ## 许可证
 

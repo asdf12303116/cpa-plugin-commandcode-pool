@@ -33,7 +33,7 @@ func TestCustomRegistry(t *testing.T) {
 	if plugin.ID != pluginID {
 		t.Fatalf("plugin id = %q, want %q", plugin.ID, pluginID)
 	}
-	if plugin.Version != "0.2.0" {
-		t.Fatalf("plugin version = %q, want 0.2.0", plugin.Version)
+	if plugin.Version != "0.2.1" {
+		t.Fatalf("plugin version = %q, want 0.2.1", plugin.Version)
 	}
 }

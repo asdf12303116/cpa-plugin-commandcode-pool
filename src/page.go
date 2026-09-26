@@ -3,12 +3,18 @@ package main
 // statusPageHTML is the plugin resource page.
 //
 // The page renders one compact table row per account and puts the full reading
-// into the cell's native tooltip, so everything is visible on hover without
-// leaving the single-line layout. Data comes from the unauthenticated
-// /status.json resource route by default, which means no management key is
-// needed to open the page; a key is only required to trigger a refresh.
+// into each cell's native tooltip. It loads by itself on open: the management
+// key is taken from CPA Manager Plus' persisted auth store, from this page's own
+// remembered value, or from the current tab, and a key typed or pasted into the
+// field triggers the load automatically, so the Load button is only a fallback.
+//
+// CommandCode throttles on credit/USD-equivalent value rather than request
+// quotas, so every column is amount-based. The columns also depend on the plan
+// kind: subscription plans are limited by the rolling 5h/weekly windows, while
+// pay-as-you-go (Provider) accounts have no windows and are limited by their
+// credit balance. Request counts only appear as secondary diagnostics.
 const statusPageHTML = `<!doctype html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -43,21 +49,22 @@ table.grid tr:hover td { background: color-mix(in srgb, CanvasText 5%, transpare
 <div class="muted" id="meta"></div>
 <div class="card">
   <div class="row">
-    <label class="muted">Management key (optional — only needed to refresh)
-      <input type="password" id="key" placeholder="leave empty to view read-only" autocomplete="off">
+    <label class="muted">Management key
+      <input type="password" id="key" placeholder="loaded automatically when available" autocomplete="off">
     </label>
     <button id="load">Reload</button>
     <button id="refresh" hidden>Refresh all</button>
     <button id="togglePlans">Plan catalog</button>
-    <span class="muted" id="mode"></span>
+    <button id="forget" hidden title="Remove the remembered key from this browser">Forget key</button>
+    <span class="muted" id="keySource"></span>
   </div>
   <div id="error"></div>
 </div>
 <div id="plans" hidden></div>
 <div id="content" class="muted">Loading…</div>
 <script>
-var RES = '/v0/resource/plugins/commandcode-pool';
 var MGMT = '/v0/management/plugins/commandcode-pool';
+var STORE_KEY = 'ccp-key';
 var keyInput = document.getElementById('key');
 var state = { warn: 80, critical: 95 };
 
@@ -77,21 +84,49 @@ function deobfuscatePayload(payload) {
   for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i) ^ keyBytes[i % keyBytes.length];
   return new TextDecoder().decode(bytes);
 }
+
+// readStoredKey resolves a management key without any user interaction:
+// CPA Manager Plus' persisted auth store first, then the key this page
+// remembered, then the current tab.
 function readStoredKey() {
   try {
     var raw = localStorage.getItem('cli-proxy-auth');
     if (raw) {
       var payload = JSON.parse(deobfuscatePayload(raw));
       var st = (payload && typeof payload.state === 'object' && payload.state !== null) ? payload.state : payload;
-      if (st && typeof st.managementKey === 'string' && st.managementKey) return st.managementKey;
+      if (st && typeof st.managementKey === 'string' && st.managementKey) {
+        return { key: st.managementKey, source: 'CPA Manager Plus' };
+      }
     }
   } catch (e) {}
   try {
     var legacy = localStorage.getItem('managementKey');
-    if (legacy) return legacy;
+    if (legacy) return { key: legacy, source: 'CPA Manager Plus' };
+  } catch (e) {}
+  try {
+    var own = localStorage.getItem(STORE_KEY);
+    if (own) return { key: own, source: 'this browser' };
+  } catch (e) {}
+  try {
+    var tab = sessionStorage.getItem(STORE_KEY);
+    if (tab) return { key: tab, source: 'this tab' };
   } catch (e) {}
   return null;
 }
+function rememberKey(key) {
+  try { localStorage.setItem(STORE_KEY, key); } catch (e) {}
+  try { sessionStorage.setItem(STORE_KEY, key); } catch (e) {}
+}
+function forgetKey() {
+  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
+  try { sessionStorage.removeItem(STORE_KEY); } catch (e) {}
+  keyInput.value = '';
+  document.getElementById('keySource').textContent = '';
+  document.getElementById('forget').hidden = true;
+  document.getElementById('refresh').hidden = true;
+  document.getElementById('content').innerHTML = 'Key forgotten. Paste the management key to load the pool.';
+}
+
 function esc(s) {
   return String(s === undefined || s === null ? '' : s).replace(/[&<>"]/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -121,6 +156,72 @@ function cell(inner, tip, cls) {
   return '<td' + (cls ? ' class="' + cls + '"' : '') + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + inner + '</td>';
 }
 function join(lines) { return lines.filter(function (l) { return l !== '' && l !== undefined && l !== null; }).join('\n'); }
+function statusBadge(status) {
+  if (!status) return '';
+  return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
+}
+
+// CommandCode enforces rolling credit-value windows on subscription plans and a
+// prepaid balance on pay-as-you-go accounts, so the two need different columns.
+// windowLimits.limited is authoritative when present; the planId is the fallback.
+function isPayAsYouGo(a) {
+  var bal = a.balance || {};
+  if (bal.limited === false) return true;
+  if (bal.limited === true) return false;
+  var plan = a.plan || {};
+  return plan.id === 'individual-provider';
+}
+
+function accountCell(a) {
+  var plan = a.plan || {};
+  var id = a.identity || {};
+  var badges = '';
+  if (a.disabled) badges += ' <span class="badge muted">disabled</span>';
+  if (a.stale) badges += ' <span class="badge warn">stale</span>';
+  if (plan.shared_keys > 1) badges += ' <span class="badge warn">shared pool</span>';
+  var text = '<b>' + esc(a.name) + '</b>' + badges
+    + (a.key_suffix ? '<br><span class="muted">…' + esc(a.key_suffix) + '</span>' : '');
+  var tip = join([
+    'providers: ' + ((a.providers && a.providers.length) ? a.providers.join(', ') : '-'),
+    'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
+    id.email ? 'email: ' + id.email : '',
+    id.org_id ? 'org: ' + id.org_id : '',
+    'kind: ' + (isPayAsYouGo(a) ? 'pay-as-you-go (credit balance)' : 'subscription (rolling windows)'),
+    'disabled: ' + (a.disabled ? 'yes' : 'no'),
+    'stale: ' + (a.stale ? 'yes' : 'no'),
+    'refreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'),
+    (a.data_age_seconds !== undefined && a.data_age_seconds !== null) ? 'data age: ' + a.data_age_seconds + 's' : '',
+    a.attempted_at ? 'last attempt: ' + fmtTime(a.attempted_at) : '',
+  ]);
+  return { text: text, tip: tip };
+}
+
+function planCell(a) {
+  var plan = a.plan || {};
+  if (!plan.id) {
+    return {
+      text: '<span class="muted">no subscription</span>',
+      tip: 'no active subscription reported by /alpha/billing/subscriptions',
+    };
+  }
+  var text = '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status);
+  var tip = join([
+    'planId: ' + plan.id,
+    plan.marketing_name ? 'marketing name: ' + plan.marketing_name : '',
+    plan.known === false ? 'catalog: UNKNOWN planId — raw API values only' : 'catalog: known plan',
+    'status: ' + (plan.status || '-'),
+    plan.quantity !== undefined ? 'quantity: ' + plan.quantity : '',
+    'cancel at period end: ' + (plan.cancel_at_period_end ? 'yes' : 'no'),
+    plan.subscription_id ? 'subscription: ' + plan.subscription_id : '',
+    plan.price_id ? 'price: ' + plan.price_id : '',
+    plan.created_at ? 'created: ' + fmtTime(plan.created_at) : '',
+    plan.current_period_start ? 'billing period start: ' + fmtTime(plan.current_period_start) : '',
+    plan.current_period_end ? 'billing period end: ' + fmtTime(plan.current_period_end) : '',
+    (plan.days_remaining === undefined || plan.days_remaining === null) ? '' : 'days remaining: ' + plan.days_remaining,
+    plan.pending_phase ? 'pending phase: ' + JSON.stringify(plan.pending_phase) : '',
+  ]);
+  return { text: text, tip: tip };
+}
 
 function windowCell(w) {
   if (!w || w.used === undefined) {
@@ -132,7 +233,7 @@ function windowCell(w) {
     'used:  $' + fmtNum(w.used, 6),
     'cap:   $' + fmtNum(w.cap, 2),
     'headroom: $' + fmtNum(w.headroom, 6),
-    'percent: ' + fmtNum(pct, 2) + '%',
+    'percent: ' + fmtNum(pct, 2) + '%  (credit value used vs cap)',
     'exceeded: ' + fmtBool(w.exceeded),
     'blocked: ' + (w.blocked ? 'yes' : 'no') + (w.blocked ? '  (effective: ' + (w.blocked_effective ? 'yes' : 'no — prepaid credits bypass caps') + ')' : ''),
     'reset at: ' + (w.reset_at ? fmtTime(w.reset_at) : 'unknown'),
@@ -141,140 +242,107 @@ function windowCell(w) {
   return { text: text, tip: tip };
 }
 
-function statusBadge(status) {
-  if (!status) return '';
-  return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
-}
-
-function accountRow(a) {
-  var plan = a.plan || {};
+function creditsCell(a) {
   var bal = a.balance || {};
-  var id = a.identity || {};
-
-  var badges = '';
-  if (a.disabled) badges += ' <span class="badge muted">disabled</span>';
-  if (a.stale) badges += ' <span class="badge warn">stale</span>';
-  if (plan.shared_keys > 1) badges += ' <span class="badge warn">shared pool</span>';
-
-  var acctText = '<b>' + esc(a.name) + '</b>' + badges
-    + (a.key_suffix ? '<br><span class="muted">…' + esc(a.key_suffix) + '</span>' : '');
-  var acctTip = join([
-    'providers: ' + ((a.providers && a.providers.length) ? a.providers.join(', ') : '-'),
-    'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
-    id.email ? 'email: ' + id.email : '',
-    id.org_id ? 'org: ' + id.org_id : '',
-    'disabled: ' + (a.disabled ? 'yes' : 'no'),
-    'stale: ' + (a.stale ? 'yes' : 'no'),
-    'refreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'),
-    (a.data_age_seconds !== undefined && a.data_age_seconds !== null) ? 'data age: ' + a.data_age_seconds + 's' : '',
-    a.attempted_at ? 'last attempt: ' + fmtTime(a.attempted_at) : '',
+  if (bal.total_remaining === undefined && bal.monthly_remaining === undefined) {
+    return { text: '<span class="muted">n/a</span>', tip: 'no /alpha/billing/credits reading yet' };
+  }
+  var text = '<span class="mono">$' + fmtNum(bal.total_remaining, 2) + '</span>';
+  var parts = [];
+  if (bal.purchased_credits) parts.push('topped up $' + fmtNum(bal.purchased_credits, 2));
+  if (bal.free_credits) parts.push('free $' + fmtNum(bal.free_credits, 2));
+  if (parts.length) text += '<br><span class="muted">' + parts.join(' · ') + '</span>';
+  var tip = join([
+    'pay-as-you-go balance: $' + fmtNum(bal.total_remaining, 6),
+    'purchased credits: $' + fmtNum(bal.purchased_credits, 6),
+    'free credits: $' + fmtNum(bal.free_credits, 6),
+    bal.monthly_remaining ? 'included monthly credits: $' + fmtNum(bal.monthly_remaining, 6) : '',
+    'rolling windows enforced: ' + (bal.limited ? 'yes' : 'no'),
+    'window exceeded flag: ' + fmtBool(bal.window_exceeded),
+    'low-credit warning: ' + (bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'),
   ]);
-
-  var planText = plan.id
-    ? '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status)
-    : '<span class="muted">no subscription</span>';
-  var planTip = plan.id ? join([
-    'planId: ' + plan.id,
-    plan.marketing_name ? 'marketing name: ' + plan.marketing_name : '',
-    plan.known === false ? 'catalog: UNKNOWN planId — raw API values only' : 'catalog: known plan',
-    'status: ' + (plan.status || '-'),
-    plan.quantity !== undefined ? 'quantity: ' + plan.quantity : '',
-    'cancel at period end: ' + (plan.cancel_at_period_end ? 'yes' : 'no'),
-    plan.subscription_id ? 'subscription: ' + plan.subscription_id : '',
-    plan.price_id ? 'price: ' + plan.price_id : '',
-    plan.created_at ? 'created: ' + fmtTime(plan.created_at) : '',
-    plan.pending_phase ? 'pending phase: ' + JSON.stringify(plan.pending_phase) : '',
-  ]) : 'no active subscription reported by /alpha/billing/subscriptions';
-
-  var credText, credTip;
-  if (bal.monthly_remaining === undefined) {
-    credText = '<span class="muted">n/a</span>';
-    credTip = 'no /alpha/billing/credits reading yet';
-  } else {
-    var inc = bal.monthly_included;
-    var cons = bal.monthly_consumed_percent;
-    credText = '<span class="mono">$' + fmtNum(bal.monthly_remaining, 2)
-      + (inc === undefined ? '' : ' / $' + fmtNum(inc, 0)) + '</span>'
-      + (inc === undefined ? '' : '<br>' + bar(cons) + '<span class="mono ' + pctClass(cons) + '">' + fmtNum(cons, 1) + '%</span>');
-    credTip = join([
-      'monthly remaining: $' + fmtNum(bal.monthly_remaining, 6),
-      inc === undefined ? 'included allowance: unknown (planId not in catalog)' : 'included allowance: $' + fmtNum(inc, 2),
-      bal.monthly_consumed !== undefined ? 'consumed: $' + fmtNum(bal.monthly_consumed, 6) + '  (' + fmtNum(cons, 2) + '%)' : '',
-      'purchased credits: $' + fmtNum(bal.purchased_credits, 6) + '  (exempt from window caps)',
-      'free credits: $' + fmtNum(bal.free_credits, 6),
-      'total remaining: $' + fmtNum(bal.total_remaining, 6),
-      'low-credit warning: ' + (bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'),
-      'rolling windows enforced: ' + (bal.limited ? 'yes' : 'no'),
-      'window exceeded flag: ' + fmtBool(bal.window_exceeded),
-      bal.sandbox_access ? 'sandbox access: yes' + (bal.sandbox_minutes !== undefined ? ' (' + fmtNum(bal.sandbox_minutes, 0) + ' min)' : '') : '',
-    ]);
-  }
-
-  var perText, perTip;
-  if (!plan.current_period_start) {
-    perText = '<span class="muted">n/a</span>';
-    perTip = 'no billing period reported';
-  } else {
-    var dr = plan.days_remaining;
-    perText = '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
-      + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>';
-    perTip = join([
-      'billing period start: ' + fmtTime(plan.current_period_start),
-      'billing period end:   ' + fmtTime(plan.current_period_end),
-      'days remaining: ' + (dr === undefined || dr === null ? '-' : dr),
-      'period elapsed: ' + fmtNum(plan.period_elapsed_percent, 2) + '%',
-      'monthly credits reset at the period end',
-    ]);
-  }
-
-  var s = a.period_summary;
-  var reqText, reqTip;
-  if (!s) {
-    reqText = '<span class="muted">n/a</span>';
-    reqTip = 'usage summary unavailable or disabled (include-usage-summary)';
-  } else {
-    reqText = '<span class="mono">' + fmtNum(s.requests, 0) + '</span>'
-      + ' <span class="muted">·</span> <span class="' + (s.success_rate >= 99 ? 'ok' : 'warn') + '">' + fmtNum(s.success_rate, 0) + '%</span>';
-    reqTip = join([
-      'requests: ' + s.requests + '  (completed ' + s.completed + ', failed ' + s.failed + ')',
-      'success rate: ' + fmtNum(s.success_rate, 2) + '%',
-      'tokens in / out / total: ' + fmtNum(s.tokens_in, 0) + ' / ' + fmtNum(s.tokens_out, 0) + ' / ' + fmtNum(s.tokens_total, 0),
-      'cost: $' + fmtNum(s.total_cost, 6) + '   average: $' + fmtNum(s.average_cost, 6),
-      'credits: $' + fmtNum(s.total_credits, 6) + '  (monthly $' + fmtNum(s.total_monthly_credits, 6)
-        + ', purchased $' + fmtNum(s.total_purchased_credits, 6) + ', free $' + fmtNum(s.total_free_credits, 6) + ')',
-      'requested since: ' + (s.since || '-'),
-      'effective since: ' + (s.since_effective || '-') + '   [' + (s.granularity || 'unknown') + ' bucketing]',
-      'period basis: ' + (s.period_basis || '-'),
-    ]);
-  }
-
-  var errs = a.errors ? Object.keys(a.errors) : [];
-  var healthText = errs.length
-    ? '<span class="bad">' + errs.length + ' err</span>'
-    : '<span class="ok">ok</span>';
-  var healthTip = errs.length
-    ? join(errs.map(function (k) { return k + ': ' + a.errors[k]; }))
-    : 'all /alpha/* endpoints healthy';
-  healthTip += '\nrefreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never');
-  if (a.data_age_seconds !== undefined && a.data_age_seconds !== null) healthTip += '\ndata age: ' + a.data_age_seconds + 's';
-  if (a.stale) healthTip += '\nSTALE: older than usage-stale-after';
-
-  var w5 = windowCell((a.windows || {})['5h']);
-  var ww = windowCell((a.windows || {}).weekly);
-
-  return '<tr>'
-    + cell(acctText, acctTip)
-    + cell(planText, planTip)
-    + cell(w5.text, '5-hour window\n' + w5.tip, 'tip')
-    + cell(ww.text, 'weekly window\n' + ww.tip, 'tip')
-    + cell(credText, credTip, 'tip')
-    + cell(perText, perTip, 'tip')
-    + cell(reqText, reqTip, 'tip')
-    + cell(healthText, healthTip, 'tip')
-    + '</tr>';
+  return { text: text, tip: tip };
 }
 
-function render(status, mode) {
+function periodCell(a) {
+  var plan = a.plan || {};
+  if (!plan.current_period_start) {
+    return { text: '<span class="muted">n/a</span>', tip: 'no billing period reported' };
+  }
+  var dr = plan.days_remaining;
+  var text = '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
+    + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>';
+  var tip = join([
+    'billing period start: ' + fmtTime(plan.current_period_start),
+    'billing period end:   ' + fmtTime(plan.current_period_end),
+    'days remaining: ' + (dr === undefined || dr === null ? '-' : dr),
+    'period elapsed: ' + fmtNum(plan.period_elapsed_percent, 2) + '%',
+  ]);
+  return { text: text, tip: tip };
+}
+
+function spendCell(a) {
+  var s = a.period_summary;
+  if (!s) {
+    return { text: '<span class="muted">n/a</span>', tip: 'billing-period spend unavailable or disabled (include-usage-summary)' };
+  }
+  var text = '<span class="mono">$' + fmtNum(s.total_cost, 4) + '</span>';
+  var tip = join([
+    'billing-period spend: $' + fmtNum(s.total_cost, 6),
+    'credits charged: $' + fmtNum(s.total_credits, 6) + '  (monthly $' + fmtNum(s.total_monthly_credits, 6)
+      + ', purchased $' + fmtNum(s.total_purchased_credits, 6) + ', free $' + fmtNum(s.total_free_credits, 6) + ')',
+    'average per request: $' + fmtNum(s.average_cost, 6),
+    'requested since: ' + (s.since || '-'),
+    'effective since: ' + (s.since_effective || '-') + '   [' + (s.granularity || 'unknown') + ' bucketing]',
+    'period basis: ' + (s.period_basis || '-'),
+    '--- diagnostics (not billing units) ---',
+    fmtNum(s.requests, 0) + ' requests, ' + fmtNum(s.failed, 0) + ' failed, success rate ' + fmtNum(s.success_rate, 2) + '%',
+    'tokens: ' + fmtNum(s.tokens_in, 0) + ' in / ' + fmtNum(s.tokens_out, 0) + ' out / ' + fmtNum(s.tokens_total, 0) + ' total',
+  ]);
+  return { text: text, tip: tip };
+}
+
+function healthCell(a) {
+  var errs = a.errors ? Object.keys(a.errors) : [];
+  var text = errs.length ? '<span class="bad">' + errs.length + ' err</span>' : '<span class="ok">ok</span>';
+  var tip = errs.length ? join(errs.map(function (k) { return k + ': ' + a.errors[k]; })) : 'all /alpha/* endpoints healthy';
+  tip += '\nrefreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never');
+  if (a.data_age_seconds !== undefined && a.data_age_seconds !== null) tip += '\ndata age: ' + a.data_age_seconds + 's';
+  if (a.stale) tip += '\nSTALE: older than usage-stale-after';
+  return { text: text, tip: tip };
+}
+
+function accountRow(a, payg) {
+  var acct = accountCell(a);
+  var plan = planCell(a);
+  var spend = spendCell(a);
+  var health = healthCell(a);
+  var html = '<tr>'
+    + cell(acct.text, acct.tip)
+    + cell(plan.text, plan.tip);
+  if (payg) {
+    var credits = creditsCell(a);
+    html += cell(credits.text, credits.tip, 'tip');
+  } else {
+    var w5 = windowCell((a.windows || {})['5h']);
+    var ww = windowCell((a.windows || {}).weekly);
+    var period = periodCell(a);
+    html += cell(w5.text, '5-hour window\n' + w5.tip, 'tip');
+    html += cell(ww.text, 'weekly window\n' + ww.tip, 'tip');
+    html += cell(period.text, period.tip, 'tip');
+  }
+  return html + cell(spend.text, spend.tip, 'tip') + cell(health.text, health.tip, 'tip') + '</tr>';
+}
+
+function tableHTML(accounts, columns, payg) {
+  var html = '<div class="card"><table class="grid"><tr>';
+  for (var i = 0; i < columns.length; i++) html += '<th>' + columns[i] + '</th>';
+  html += '</tr>';
+  for (var j = 0; j < accounts.length; j++) html += accountRow(accounts[j], payg);
+  return html + '</table></div>';
+}
+
+function render(status) {
   state.warn = status.warn_percent || 80;
   state.critical = status.critical_percent || 95;
   document.getElementById('meta').textContent =
@@ -282,9 +350,8 @@ function render(status, mode) {
     + ' · refresh ' + status.refresh_interval
     + ' · stale after ' + status.stale_after
     + ' · ' + fmtTime(status.generated_at);
-  document.getElementById('mode').textContent = mode === 'management'
-    ? 'management view'
-    : 'read-only view · no management key required · hover any cell for details';
+  document.getElementById('refresh').hidden = !keyInput.value.trim();
+  document.getElementById('forget').hidden = !keyInput.value.trim();
 
   var html = '';
   if (status.config_error) html += '<div class="card bad">config error: ' + esc(status.config_error) + '</div>';
@@ -299,11 +366,23 @@ function render(status, mode) {
     document.getElementById('content').innerHTML = html;
     return;
   }
-  html += '<div class="card"><table class="grid"><tr>'
-    + '<th>Account</th><th>Plan</th><th>5h</th><th>Weekly</th><th>Monthly credits</th><th>Period</th><th>Requests</th><th>Health</th>'
-    + '</tr>';
-  for (var j = 0; j < status.accounts.length; j++) html += accountRow(status.accounts[j]);
-  html += '</table><div class="muted" style="margin-top:8px">Hover any cell for the full reading. Percentages are credit/USD-equivalent value against the plan window cap.</div></div>';
+
+  var subscription = [], payAsYouGo = [];
+  for (var j = 0; j < status.accounts.length; j++) {
+    if (isPayAsYouGo(status.accounts[j])) payAsYouGo.push(status.accounts[j]);
+    else subscription.push(status.accounts[j]);
+  }
+  if (subscription.length) {
+    html += '<div class="muted" style="margin:0 0 6px 2px">Subscription plans — limited by rolling credit-value windows</div>';
+    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Spend', 'Health'], false);
+  }
+  if (payAsYouGo.length) {
+    html += '<div class="muted" style="margin:12px 0 6px 2px">Pay-as-you-go — limited by credit balance, no rolling windows</div>';
+    html += tableHTML(payAsYouGo, ['Account', 'Plan', 'Credits', 'Spend', 'Health'], true);
+  }
+  html += '<div class="muted" style="margin-top:8px">Hover any cell for the full reading. '
+    + 'CommandCode limits are credit/USD-equivalent, not request quotas, so every column is amount-based; '
+    + 'request counts appear only as tooltip diagnostics.</div>';
   document.getElementById('content').innerHTML = html;
 }
 
@@ -317,34 +396,19 @@ async function load() {
   var err = document.getElementById('error');
   err.textContent = '';
   var key = keyInput.value.trim();
-  try { sessionStorage.setItem('ccp-key', key); } catch (e) {}
-  document.getElementById('refresh').hidden = !key;
-
-  var status = null;
-  var mode = 'public';
-  if (key) {
-    try {
-      status = await fetchJSON(MGMT + '/status', { headers: authHeaders() });
-      mode = 'management';
-    } catch (e) {
-      err.textContent = 'management key not accepted (' + e.message + '); showing the read-only view';
-    }
+  if (!key) {
+    err.textContent = 'management key required — paste it once, it is remembered on this browser';
+    keyInput.focus();
+    return;
   }
-  if (!status) {
-    try {
-      status = await fetchJSON(RES + '/status.json');
-    } catch (e) {
-      throw new Error('no data available: the read-only endpoint failed (' + e.message
-        + '). Either enable public-status or enter the management key.');
-    }
-  }
-  render(status, mode);
+  var status = await fetchJSON(MGMT + '/status', { headers: authHeaders() });
+  rememberKey(key);
+  document.getElementById('keySource').textContent = 'key accepted and remembered on this browser';
+  render(status);
 }
 
 async function plansHTML() {
-  var data;
-  try { data = await fetchJSON(RES + '/plans'); }
-  catch (e) { data = await fetchJSON(MGMT + '/plans', { headers: authHeaders() }); }
+  var data = await fetchJSON(MGMT + '/plans', { headers: authHeaders() });
   var html = '<div class="card"><h2>Plan catalog</h2><table class="grid"><tr><th>planId</th><th>Name</th><th>Marketing</th><th>Monthly credits</th><th>5h cap</th><th>Weekly cap</th></tr>';
   for (var i = 0; i < data.plans.length; i++) {
     var p = data.plans[i];
@@ -356,35 +420,60 @@ async function plansHTML() {
   return html + '</table><div class="muted" style="margin-top:8px">Reference data from the CommandCode CLI bundle and pricing page; the live API remains authoritative for caps and balances.</div></div>';
 }
 
-document.getElementById('load').addEventListener('click', function () {
-  load().catch(function (e) { document.getElementById('error').textContent = String(e); });
-});
+function showError(e) { document.getElementById('error').textContent = String(e); }
+function runLoad() { load().catch(function (e) { showError(e); }); }
+
+document.getElementById('load').addEventListener('click', runLoad);
+document.getElementById('forget').addEventListener('click', forgetKey);
 document.getElementById('refresh').addEventListener('click', async function () {
   try {
     await fetchJSON(MGMT + '/refresh', { method: 'POST', headers: authHeaders(), body: '{}' });
-    setTimeout(function () { load().catch(function () {}); }, 1500);
-  } catch (e) { document.getElementById('error').textContent = String(e); }
+    setTimeout(runLoad, 1500);
+  } catch (e) { showError(e); }
 });
 document.getElementById('togglePlans').addEventListener('click', async function () {
   var el = document.getElementById('plans');
   if (el.hidden) {
     try { el.innerHTML = await plansHTML(); el.hidden = false; }
-    catch (e) { document.getElementById('error').textContent = String(e); }
+    catch (e) { showError(e); }
   } else {
     el.hidden = true;
   }
 });
+
+// No interaction required: loading starts as soon as a key is available, and a
+// key that is typed or pasted in triggers a load by itself.
+var inputTimer = null;
+keyInput.addEventListener('input', function () {
+  if (inputTimer) { clearTimeout(inputTimer); inputTimer = null; }
+  var value = keyInput.value.trim();
+  if (!value) return;
+  inputTimer = setTimeout(function () {
+    if (keyInput.value.trim() === value) runLoad();
+  }, 600);
+});
 keyInput.addEventListener('keydown', function (e) {
-  if (e.key === 'Enter') load().catch(function (err) { document.getElementById('error').textContent = String(err); });
+  if (e.key === 'Enter') {
+    if (inputTimer) { clearTimeout(inputTimer); inputTimer = null; }
+    runLoad();
+  }
+});
+keyInput.addEventListener('blur', function () {
+  if (inputTimer) { clearTimeout(inputTimer); inputTimer = null; }
 });
 
-try { keyInput.value = sessionStorage.getItem('ccp-key') || ''; } catch (e) {}
-if (!keyInput.value) {
-  var stored = readStoredKey();
-  if (stored) keyInput.value = stored;
+var stored = readStoredKey();
+if (stored) {
+  keyInput.value = stored.key;
+  document.getElementById('keySource').textContent = 'key loaded automatically from ' + stored.source;
+  document.getElementById('refresh').hidden = false;
+  document.getElementById('forget').hidden = false;
+  runLoad();
+} else {
+  keyInput.focus();
+  document.getElementById('content').innerHTML =
+    'Paste the CPA management key once — it is remembered on this browser and the pool loads automatically from then on.';
 }
-document.getElementById('refresh').hidden = !keyInput.value.trim();
-load().catch(function (e) { document.getElementById('error').textContent = String(e); });
 </script>
 </body>
 </html>`

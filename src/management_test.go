@@ -408,99 +408,6 @@ func TestHandleManagementResourcePage(t *testing.T) {
 	}
 }
 
-func TestPublicStatusRedactsInternalIdentifiers(t *testing.T) {
-	cfg := decodeSettings(nil)
-	acct := testAccount("cc-1", "AAAAAA")
-	p := resetPool(cfg, []*account{acct})
-	now := time.Now()
-	p.mu.Lock()
-	snap := p.snapshotFor(acct)
-	snap.RefreshedAt = now
-	snap.AttemptedAt = now
-	snap.Whoami = &whoamiResponse{
-		Success: true,
-		User:    whoamiUser{ID: "11111111-2222-3333-4444-555555555555", Email: "abcdefgh@example.com", UserName: "tester"},
-		Org:     &whoamiOrg{ID: "99999999-8888-7777-6666-555555555555"},
-	}
-	snap.Subscription = &subscriptionData{ID: "sub_EXAMPLE1234567890", Status: "active", PlanID: "individual-goat", PriceID: "price_EXAMPLE"}
-	snap.Credits = &creditsResponse{}
-	p.mu.Unlock()
-
-	pub := publicStatus()
-	if len(pub.Accounts) != 1 {
-		t.Fatalf("accounts = %d", len(pub.Accounts))
-	}
-	got := pub.Accounts[0]
-	if got.Identity.UserID != "" || got.Identity.OrgID != "" || got.Identity.Limits != nil {
-		t.Errorf("identity identifiers must be stripped: %+v", got.Identity)
-	}
-	if got.Plan.SubscriptionID != "" || got.Plan.PriceID != "" || got.Plan.PendingPhase != nil {
-		t.Errorf("billing identifiers must be stripped: %+v", got.Plan)
-	}
-	// Dashboard-relevant fields must survive redaction.
-	if got.Plan.Name != "GOAT" || got.Identity.Email != "ab***h@example.com" || got.KeySuffix != "AAAAAA" {
-		t.Errorf("dashboard fields missing: %+v", got)
-	}
-
-	raw, errMarshal := json.Marshal(pub)
-	if errMarshal != nil {
-		t.Fatal(errMarshal)
-	}
-	for _, secret := range []string{"11111111-2222", "99999999-8888", "sub_EXAMPLE", "price_EXAMPLE", acct.apiKey} {
-		if strings.Contains(string(raw), secret) {
-			t.Errorf("public payload leaked %q", secret)
-		}
-	}
-}
-
-func TestResourceDataRoutesRespectPublicStatus(t *testing.T) {
-	acct := testAccount("cc-1", "AAAAAA")
-	seed := func(cfg settings) {
-		p := resetPool(cfg, []*account{acct})
-		now := time.Now()
-		p.mu.Lock()
-		snap := p.snapshotFor(acct)
-		snap.RefreshedAt = now
-		snap.AttemptedAt = now
-		snap.Credits = &creditsResponse{}
-		p.mu.Unlock()
-	}
-
-	// Default: the read-only view is served without any management key.
-	seed(decodeSettings(nil))
-	resp, status := managementCall(t, http.MethodGet, "/v0/resource/plugins/commandcode-pool/status.json", nil)
-	if status != http.StatusOK {
-		t.Fatalf("status.json = %d, want 200", status)
-	}
-	var body statusResponse
-	if errUnmarshal := json.Unmarshal(resp.Body, &body); errUnmarshal != nil {
-		t.Fatal(errUnmarshal)
-	}
-	if len(body.Accounts) != 1 || body.Accounts[0].Name != "cc-1" {
-		t.Fatalf("status.json body = %+v", body.Accounts)
-	}
-	if _, status = managementCall(t, http.MethodGet, "/v0/resource/plugins/commandcode-pool/plans", nil); status != http.StatusOK {
-		t.Fatalf("resource plans = %d, want 200", status)
-	}
-
-	// Opt-out: data routes disappear, the HTML shell stays so a key still works.
-	seed(decodeSettings([]byte("public-status: false\n")))
-	if _, status = managementCall(t, http.MethodGet, "/v0/resource/plugins/commandcode-pool/status.json", nil); status != http.StatusNotFound {
-		t.Fatalf("status.json with public-status=false = %d, want 404", status)
-	}
-	if _, status = managementCall(t, http.MethodGet, "/v0/resource/plugins/commandcode-pool/plans", nil); status != http.StatusNotFound {
-		t.Fatalf("plans with public-status=false = %d, want 404", status)
-	}
-	if _, status = managementCall(t, http.MethodGet, "/v0/resource/plugins/commandcode-pool/status", nil); status != http.StatusOK {
-		t.Fatalf("resource page with public-status=false = %d, want 200", status)
-	}
-
-	// The authenticated management routes never change.
-	if _, status = managementCall(t, http.MethodGet, "/v0/management/plugins/commandcode-pool/status", nil); status != http.StatusOK {
-		t.Fatalf("management status = %d, want 200", status)
-	}
-}
-
 func TestHandleManagementRegisterDeclaresRoutes(t *testing.T) {
 	raw, errRegister := handleManagementRegister()
 	if errRegister != nil {
@@ -532,19 +439,10 @@ func TestHandleManagementRegisterDeclaresRoutes(t *testing.T) {
 			t.Errorf("missing route %q", key)
 		}
 	}
-	if len(resp.Resources) != 3 {
+	// The page shell is the only resource route; account data stays behind the
+	// management-authenticated API.
+	if len(resp.Resources) != 1 || resp.Resources[0].Path != "/status" {
 		t.Fatalf("resources = %+v", resp.Resources)
-	}
-	menuRoutes := 0
-	for _, resource := range resp.Resources {
-		if resource.Menu != "" {
-			menuRoutes++
-		}
-	}
-	// Only the labeled page shows up in the CPA resource menu; the data routes
-	// must stay menu-less so they do not pollute it.
-	if menuRoutes != 1 {
-		t.Fatalf("resource menu entries = %d, want 1", menuRoutes)
 	}
 }
 

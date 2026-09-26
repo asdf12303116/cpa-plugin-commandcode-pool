@@ -102,11 +102,6 @@ func pluginRegistration() registration {
 					Description: "Call /alpha/usage/summary (billing-period aggregates) on every cycle (default true).",
 				},
 				{
-					Name:        "public-status",
-					Type:        pluginapi.ConfigFieldTypeBoolean,
-					Description: "Serve the read-only dashboard data on the unauthenticated resource route so the page needs no management key (default true; disable to require the key).",
-				},
-				{
 					Name:        "warn-percent",
 					Type:        pluginapi.ConfigFieldTypeInteger,
 					Description: "Dashboard warning threshold in percent of a window cap (default 80).",
