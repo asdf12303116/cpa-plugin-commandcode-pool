@@ -155,7 +155,9 @@ plugins:
 只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示 `Credits`（剩余金额及充值
 金额）并隐藏窗口列。
 
-账号类型优先取 `windowLimits.limited`，缺失时回退到 `planId` 判断。
+分组标题直接用该字段本身标注：`windowLimits.limited = true`（**windows enforced**）
+与 `= false` —— 这个字段就是 CommandCode 自己的 plan / 非 plan 判据。当 API 尚未返回该
+字段时，回退用 `planId` 判断，并在 tooltip 中明确标注是推断值，不会把猜测当成事实。
 
 每一列都是**金额口径** —— CommandCode 的限流基于额度/USD 等值而非请求数；请求数、token、
 成功率只作为 tooltip 中的诊断信息。

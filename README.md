@@ -175,8 +175,11 @@ only add noise. Pay-as-you-go accounts have no windows and are limited by their
 prepaid balance instead, so they show `Credits` (`$remaining` plus what was
 topped up) and hide the window columns.
 
-The account kind is taken from `windowLimits.limited` when the API reports it,
-and falls back to the `planId` otherwise.
+The two groups are labelled with the flag itself — `windowLimits.limited = true`
+(**windows enforced**) vs `= false` — because that field is CommandCode's own
+plan/non-plan discriminator. When the API has not reported it yet, the `planId`
+is used as a fallback and the tooltip marks the value as inferred rather than
+presenting a guess as fact.
 
 Every column is **amount-based** — CommandCode throttles on credit/USD-equivalent
 value rather than request quotas. Request counts, tokens and success rate appear

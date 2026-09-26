@@ -161,15 +161,27 @@ function statusBadge(status) {
   return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
 }
 
-// CommandCode enforces rolling credit-value windows on subscription plans and a
-// prepaid balance on pay-as-you-go accounts, so the two need different columns.
-// windowLimits.limited is authoritative when present; the planId is the fallback.
-function isPayAsYouGo(a) {
+// windowsEnforced returns windowLimits.limited, which is CommandCode's own
+// plan/non-plan discriminator: subscription plans enforce rolling 5h/weekly
+// credit-value windows, while pay-as-you-go (Provider) accounts do not and are
+// limited by a prepaid balance instead. A null result means the credits
+// endpoint has not reported the flag yet; the planId is then used as a fallback
+// and the tooltip says so, so a guess is never presented as fact.
+function windowsEnforced(a) {
   var bal = a.balance || {};
-  if (bal.limited === false) return true;
-  if (bal.limited === true) return false;
+  if (bal.limited === true) return true;
+  if (bal.limited === false) return false;
   var plan = a.plan || {};
-  return plan.id === 'individual-provider';
+  if (plan.id === 'individual-provider') return false;
+  if (plan.known) return true;
+  return null;
+}
+function isPayAsYouGo(a) { return windowsEnforced(a) === false; }
+function enforcedLabel(a) {
+  var v = windowsEnforced(a);
+  if (v === true) return 'yes (rolling 5h/weekly credit-value limits)';
+  if (v === false) return 'no (pay-as-you-go credit balance)';
+  return 'unknown — no credits reading yet, inferred from planId';
 }
 
 function accountCell(a) {
@@ -186,7 +198,8 @@ function accountCell(a) {
     'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
     id.email ? 'email: ' + id.email : '',
     id.org_id ? 'org: ' + id.org_id : '',
-    'kind: ' + (isPayAsYouGo(a) ? 'pay-as-you-go (credit balance)' : 'subscription (rolling windows)'),
+    'kind: ' + (isPayAsYouGo(a) ? 'pay-as-you-go (prepaid credit balance)' : 'subscription (rolling windows)'),
+    'windows enforced: ' + enforcedLabel(a),
     'disabled: ' + (a.disabled ? 'yes' : 'no'),
     'stale: ' + (a.stale ? 'yes' : 'no'),
     'refreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'),
@@ -257,7 +270,7 @@ function creditsCell(a) {
     'purchased credits: $' + fmtNum(bal.purchased_credits, 6),
     'free credits: $' + fmtNum(bal.free_credits, 6),
     bal.monthly_remaining ? 'included monthly credits: $' + fmtNum(bal.monthly_remaining, 6) : '',
-    'rolling windows enforced: ' + (bal.limited ? 'yes' : 'no'),
+    'windows enforced: ' + enforcedLabel(a),
     'window exceeded flag: ' + fmtBool(bal.window_exceeded),
     'low-credit warning: ' + (bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'),
   ]);
@@ -373,11 +386,11 @@ function render(status) {
     else subscription.push(status.accounts[j]);
   }
   if (subscription.length) {
-    html += '<div class="muted" style="margin:0 0 6px 2px">Subscription plans — limited by rolling credit-value windows</div>';
+    html += '<div class="muted" style="margin:0 0 6px 2px">Windows enforced (<span class="mono">windowLimits.limited = true</span>) — subscription plans, throttled by rolling 5h/weekly credit-value limits</div>';
     html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Spend', 'Health'], false);
   }
   if (payAsYouGo.length) {
-    html += '<div class="muted" style="margin:12px 0 6px 2px">Pay-as-you-go — limited by credit balance, no rolling windows</div>';
+    html += '<div class="muted" style="margin:12px 0 6px 2px">Windows not enforced (<span class="mono">windowLimits.limited = false</span>) — pay-as-you-go, limited by the prepaid credit balance</div>';
     html += tableHTML(payAsYouGo, ['Account', 'Plan', 'Credits', 'Spend', 'Health'], true);
   }
   html += '<div class="muted" style="margin-top:8px">Hover any cell for the full reading. '
