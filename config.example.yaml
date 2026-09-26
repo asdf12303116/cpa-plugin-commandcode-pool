@@ -38,6 +38,10 @@ plugins:
       usage-stale-after: 20m
       # Call /alpha/usage/summary (billing-period aggregates) on every cycle.
       include-usage-summary: true
+      # Serve the read-only dashboard data on the unauthenticated resource route
+      # so opening the page needs no management key. Set false to require the
+      # key for all account data (the page then prompts for it).
+      public-status: true
       # Dashboard colour thresholds, in percent of a window cap.
       warn-percent: 80
       critical-percent: 95

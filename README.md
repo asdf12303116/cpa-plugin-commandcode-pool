@@ -78,14 +78,14 @@ checksum and writes the versioned library under `plugins/linux/amd64/` or
 
 ```sh
 make test
-make build VERSION=0.1.0
-make build VERSION=0.1.0 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
-make package VERSION=0.1.0                                       # plugin-store zip + checksums
-make package VERSION=0.1.0 ARCHS="amd64 arm64"                   # both architectures
+make build VERSION=0.2.0
+make build VERSION=0.2.0 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
+make package VERSION=0.2.0                                       # plugin-store zip + checksums
+make package VERSION=0.2.0 ARCHS="amd64 arm64"                   # both architectures
 ```
 
-Copy `dist/commandcode-pool-v0.1.0.so` into CPA's `plugins/linux/amd64/`
-directory (use `dist/commandcode-pool-v0.1.0-arm64.so` and
+Copy `dist/commandcode-pool-v0.2.0.so` into CPA's `plugins/linux/amd64/`
+directory (use `dist/commandcode-pool-v0.2.0-arm64.so` and
 `plugins/linux/arm64/` on arm64). The plugin ID is derived from the filename by
 removing the version suffix, so the packaged `commandcode-pool.so` registers as
 `commandcode-pool`.
@@ -118,6 +118,7 @@ Plugin settings live under `plugins.configs.commandcode-pool`:
 | `usage-refresh-interval` | `3m` | Poll interval per key |
 | `usage-stale-after` | `20m` | Age at which a reading is flagged stale |
 | `include-usage-summary` | `true` | Call `/alpha/usage/summary` each cycle |
+| `public-status` | `true` | Serve read-only dashboard data without the management key |
 | `warn-percent` | `80` | Dashboard warning threshold |
 | `critical-percent` | `95` | Dashboard critical threshold |
 | `user-agent` | `curl/8.7.1` | User agent for `/alpha/*` requests |
@@ -157,11 +158,24 @@ Open the plugin page at:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-When the page is served on the same origin as **CPA Manager Plus**, it reads the
-management key automatically from the manager's `localStorage` (persisted by
-"remember password"). Otherwise it falls back to the manual key field.
+The page shows one compact row per account and puts the full reading into each
+cell's native tooltip, so hovering a cell reveals used/cap/headroom, reset
+timestamps and countdown, credit balances, plan internals, token and cost
+totals, and per-endpoint errors without leaving the single-line layout.
+
+**No management key is needed to view the page.** The page reads its data from
+the unauthenticated resource route `/v0/resource/plugins/commandcode-pool/status.json`,
+which is enabled by default. If a management key is present (typed in, or read
+automatically from CPA Manager Plus' `localStorage` when served on the same
+origin) the page prefers the authenticated Management API, which contains the
+additional internal identifiers, and enables the **Refresh all** button.
+
+Setting `public-status: false` closes the data routes, after which the page
+requires a management key again.
 
 ## Management API
+
+### Authenticated management routes
 
 All management endpoints require the CPA management key.
 
@@ -171,11 +185,22 @@ All management endpoints require the CPA management key.
 | `GET /v0/management/plugins/commandcode-pool/plans` | Static `planId` catalog |
 | `POST /v0/management/plugins/commandcode-pool/refresh` | Trigger an immediate refresh pass |
 
+### Unauthenticated resource routes
+
+These serve the dashboard. They are enabled while `public-status: true` (the
+default) and return `404` otherwise.
+
+| Route | Purpose |
+| --- | --- |
+| `GET /v0/resource/plugins/commandcode-pool/status` | Dashboard page (static shell) |
+| `GET /v0/resource/plugins/commandcode-pool/status.json` | Dashboard data, internal identifiers stripped |
+| `GET /v0/resource/plugins/commandcode-pool/plans` | `planId` catalog |
+
 Abbreviated `status` response:
 
 ```json
 {
-  "version": "0.1.0",
+  "version": "0.2.0",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -297,7 +322,7 @@ shown with raw API values only (`"known": false`).
 ```sh
 make test     # gofmt check is in CI; runs go vet + go test
 make build
-make package VERSION=0.1.0
+make package VERSION=0.2.0
 make clean
 ```
 
@@ -319,8 +344,14 @@ GitHub Release.
   written to logs, status output, or the dashboard.
 - Account state is keyed by a SHA-256 hash of the API key.
 - Email addresses in the dashboard/API are masked (`a6***3@gmail.com`).
-- The resource page is served unauthenticated but contains only the static page
-  shell; all account data requires the management key.
+- With `public-status: true` (the default) the **usage data** — plan, credit
+  balance, window usage, request/token/cost totals, masked email, account name
+  and API-key suffix — is readable by anyone who can reach
+  `/v0/resource/plugins/commandcode-pool/...`. Those routes bypass CPA's
+  management authentication by design (`pluginResourceNoRoute`). Account and
+  organization UUIDs, Stripe subscription/price ids, and org spend limits are
+  stripped from this payload, and API keys are never exposed. Set
+  `public-status: false` when the CPA resource paths are not access-controlled.
 
 ## License
 

@@ -38,6 +38,7 @@ type pluginConfig struct {
 	RefreshInterval string            `yaml:"usage-refresh-interval"`
 	StaleAfter      string            `yaml:"usage-stale-after"`
 	IncludeSummary  *bool             `yaml:"include-usage-summary"`
+	PublicStatus    *bool             `yaml:"public-status"`
 	WarnPercent     int               `yaml:"warn-percent"`
 	CriticalPercent int               `yaml:"critical-percent"`
 	UserAgent       string            `yaml:"user-agent"`
@@ -51,6 +52,7 @@ type settings struct {
 	RefreshInterval time.Duration
 	StaleAfter      time.Duration
 	IncludeSummary  bool
+	PublicStatus    bool
 	WarnPercent     int
 	CriticalPercent int
 	UserAgent       string
@@ -88,6 +90,7 @@ func decodeSettings(configYAML []byte) settings {
 		RefreshInterval: parseDurationOr(cfg.RefreshInterval, defaultRefreshEvery),
 		StaleAfter:      parseDurationOr(cfg.StaleAfter, defaultStaleAfter),
 		IncludeSummary:  true,
+		PublicStatus:    true,
 		WarnPercent:     normalizePercent(cfg.WarnPercent, defaultWarnPercent),
 		CriticalPercent: normalizePercent(cfg.CriticalPercent, defaultCriticalPct),
 		UserAgent:       strings.TrimSpace(cfg.UserAgent),
@@ -105,6 +108,9 @@ func decodeSettings(configYAML []byte) settings {
 	}
 	if cfg.IncludeSummary != nil {
 		out.IncludeSummary = *cfg.IncludeSummary
+	}
+	if cfg.PublicStatus != nil {
+		out.PublicStatus = *cfg.PublicStatus
 	}
 	if len(out.BaseURLMatch) == 0 {
 		out.BaseURLMatch = append([]string(nil), defaultBaseURLMatch...)

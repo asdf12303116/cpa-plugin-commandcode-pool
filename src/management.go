@@ -37,6 +37,17 @@ func handleManagementRegister() ([]byte, error) {
 				Menu:        "CommandCode Pool",
 				Description: "CommandCode plan status, credit balance, and 5-hour/weekly window usage.",
 			},
+			// Data routes carry no Menu, so they do not add entries to the CPA
+			// resource menu. They are reachable without the management key when
+			// public-status is enabled (the default).
+			{
+				Path:        "/status.json",
+				Description: "Read-only status JSON for the dashboard (no management authentication).",
+			},
+			{
+				Path:        "/plans",
+				Description: "Static CommandCode planId catalog (no management authentication).",
+			},
 		},
 	})
 }
@@ -524,6 +535,35 @@ func buildStatus() statusResponse {
 	return out
 }
 
+// currentSettings returns a snapshot of the active plugin settings.
+func currentSettings() settings {
+	p := currentPool()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.cfg
+}
+
+// publicStatus is the payload served on the unauthenticated resource route. It
+// keeps everything the dashboard renders but drops internal identifiers that a
+// read-only viewer does not need: account and organization UUIDs, Stripe
+// subscription/price ids, org spend limits, and pending-phase internals.
+func publicStatus() statusResponse {
+	out := buildStatus()
+	for i := range out.Accounts {
+		acct := &out.Accounts[i]
+		acct.Identity.UserID = ""
+		acct.Identity.OrgID = ""
+		acct.Identity.Limits = nil
+		acct.Plan.SubscriptionID = ""
+		acct.Plan.PriceID = ""
+		acct.Plan.PendingPhase = nil
+	}
+	for i := range out.SharedSubscriptions {
+		out.SharedSubscriptions[i].SubscriptionID = ""
+	}
+	return out
+}
+
 // ---- HTTP plumbing ----
 
 func jsonResponse(status int, v any) ([]byte, error) {
@@ -570,12 +610,23 @@ func handleManagement(raw []byte) ([]byte, error) {
 	path, isResource := normalizeManagementPath(req.Path)
 
 	if isResource {
-		// Resource routes are not management-authenticated: serve only the
-		// static page shell, never account data.
-		if req.Method == http.MethodGet && (path == "/status" || path == "/") {
+		// Resource routes are not management-authenticated. Only the dashboard
+		// payload is served here, never API keys, and internal identifiers are
+		// stripped by publicStatus before it leaves the process.
+		cfg := currentSettings()
+		switch {
+		case req.Method == http.MethodGet && (path == "/status" || path == "/"):
 			return htmlResponse(statusPageHTML)
+		case req.Method == http.MethodGet && path == "/status.json" && cfg.PublicStatus:
+			return jsonResponse(http.StatusOK, publicStatus())
+		case req.Method == http.MethodGet && path == "/plans" && cfg.PublicStatus:
+			return jsonResponse(http.StatusOK, planCatalogResponse{
+				GeneratedAt: time.Now().Format(time.RFC3339),
+				Plans:       planCatalog,
+			})
+		default:
+			return jsonResponse(http.StatusNotFound, map[string]string{"error": "not found"})
 		}
-		return jsonResponse(http.StatusNotFound, map[string]string{"error": "not found"})
 	}
 
 	switch {

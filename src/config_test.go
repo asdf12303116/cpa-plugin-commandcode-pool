@@ -127,6 +127,9 @@ func TestDecodeSettingsDefaults(t *testing.T) {
 	if !cfg.IncludeSummary {
 		t.Error("include-usage-summary must default to true")
 	}
+	if !cfg.PublicStatus {
+		t.Error("public-status must default to true so the page renders without a key")
+	}
 	if cfg.WarnPercent != defaultWarnPercent || cfg.CriticalPercent != defaultCriticalPct {
 		t.Errorf("thresholds = %d / %d", cfg.WarnPercent, cfg.CriticalPercent)
 	}
@@ -145,6 +148,7 @@ api-base-url: https://staging-api.commandcode.ai/
 usage-refresh-interval: 90s
 usage-stale-after: 5m
 include-usage-summary: false
+public-status: false
 warn-percent: 90
 critical-percent: 50
 user-agent: my-agent/1.0
@@ -161,6 +165,9 @@ base-url-match:
 	}
 	if cfg.IncludeSummary {
 		t.Error("include-usage-summary override not applied")
+	}
+	if cfg.PublicStatus {
+		t.Error("public-status override not applied")
 	}
 	if cfg.UserAgent != "my-agent/1.0" {
 		t.Errorf("user-agent = %q", cfg.UserAgent)

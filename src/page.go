@@ -1,8 +1,12 @@
 package main
 
-// statusPageHTML is the unauthenticated resource-page shell. It contains no
-// account data; every data load goes through the management-key-gated API with
-// the key the user enters in the browser (or that CPA Manager Plus persisted).
+// statusPageHTML is the plugin resource page.
+//
+// The page renders one compact table row per account and puts the full reading
+// into the cell's native tooltip, so everything is visible on hover without
+// leaving the single-line layout. Data comes from the unauthenticated
+// /status.json resource route by default, which means no management key is
+// needed to open the page; a key is only required to trigger a refresh.
 const statusPageHTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -11,30 +15,27 @@ const statusPageHTML = `<!doctype html>
 <title>CommandCode Pool</title>
 <style>
 :root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-body { margin: 0; padding: 24px; background: Canvas; color: CanvasText; font-size: 14px; }
-h1 { font-size: 20px; margin: 0 0 4px; }
+body { margin: 0; padding: 20px; background: Canvas; color: CanvasText; font-size: 14px; }
+h1 { font-size: 19px; margin: 0 0 4px; }
 h2 { font-size: 15px; margin: 0 0 10px; }
-.card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-.row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
-input[type=password] { padding: 6px 10px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); min-width: 240px; background: transparent; color: inherit; }
-button { padding: 6px 14px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); background: transparent; color: inherit; cursor: pointer; }
+.card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+input[type=password] { padding: 5px 9px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); min-width: 220px; background: transparent; color: inherit; }
+button { padding: 5px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); background: transparent; color: inherit; cursor: pointer; }
 button:hover { background: color-mix(in srgb, CanvasText 8%, transparent); }
-.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
-.box { border: 1px solid color-mix(in srgb, CanvasText 12%, transparent); border-radius: 8px; padding: 10px 12px; }
-.box h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin: 0 0 8px; }
-.kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
-.kv span:first-child { opacity: .65; }
-.bar { display: inline-block; width: 100%; height: 8px; border-radius: 4px; background: color-mix(in srgb, CanvasText 12%, transparent); overflow: hidden; }
+table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.grid th, table.grid td { text-align: left; padding: 7px 10px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); vertical-align: middle; white-space: nowrap; }
+table.grid th { font-weight: 600; opacity: .75; font-size: 12px; }
+table.grid tr:hover td { background: color-mix(in srgb, CanvasText 5%, transparent); }
+.bar { display: inline-block; width: 58px; height: 7px; border-radius: 4px; background: color-mix(in srgb, CanvasText 12%, transparent); overflow: hidden; vertical-align: middle; margin-right: 6px; }
 .bar > i { display: block; height: 100%; background: #16a34a; }
 .bar > i.warn { background: #d97706; } .bar > i.bad { background: #dc2626; }
 .ok { color: #16a34a; } .bad { color: #dc2626; } .warn { color: #d97706; }
 .muted { opacity: .65; font-size: 12px; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); vertical-align: top; }
-.badge { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 11px; border: 1px solid currentColor; }
-.acct-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 6px; }
-.acct-head b { font-size: 16px; }
-#error { color: #dc2626; margin: 8px 0; min-height: 18px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.badge { display: inline-block; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid currentColor; }
+#error { color: #dc2626; margin: 8px 0; min-height: 16px; font-size: 13px; }
+.tip { cursor: help; }
 </style>
 </head>
 <body>
@@ -42,21 +43,25 @@ th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid color-mix
 <div class="muted" id="meta"></div>
 <div class="card">
   <div class="row">
-    <label>CPA Management Key <input type="password" id="key" placeholder="management key" autocomplete="off"></label>
-    <button id="load">Load</button>
-    <button id="refresh">Refresh all</button>
+    <label class="muted">Management key (optional — only needed to refresh)
+      <input type="password" id="key" placeholder="leave empty to view read-only" autocomplete="off">
+    </label>
+    <button id="load">Reload</button>
+    <button id="refresh" hidden>Refresh all</button>
     <button id="togglePlans">Plan catalog</button>
+    <span class="muted" id="mode"></span>
   </div>
   <div id="error"></div>
 </div>
-<div id="plans" style="display:none"></div>
-<div id="content" class="muted">Enter the management key and press Load.</div>
+<div id="plans" hidden></div>
+<div id="content" class="muted">Loading…</div>
 <script>
-var BASE = '/v0/management/plugins/commandcode-pool';
+var RES = '/v0/resource/plugins/commandcode-pool';
+var MGMT = '/v0/management/plugins/commandcode-pool';
 var keyInput = document.getElementById('key');
 var state = { warn: 80, critical: 95 };
 
-function headers() {
+function authHeaders() {
   var value = keyInput.value.trim();
   var h = { 'Content-Type': 'application/json' };
   if (value) h['Autho' + 'rization'] = 'Bearer ' + value;
@@ -78,12 +83,12 @@ function readStoredKey() {
     if (raw) {
       var payload = JSON.parse(deobfuscatePayload(raw));
       var st = (payload && typeof payload.state === 'object' && payload.state !== null) ? payload.state : payload;
-      if (st && typeof st.managementKey === 'string' && st.managementKey) return { key: st.managementKey, source: 'cpamp' };
+      if (st && typeof st.managementKey === 'string' && st.managementKey) return st.managementKey;
     }
   } catch (e) {}
   try {
     var legacy = localStorage.getItem('managementKey');
-    if (legacy) return { key: legacy, source: 'cpamp' };
+    if (legacy) return legacy;
   } catch (e) {}
   return null;
 }
@@ -98,6 +103,10 @@ function fmtNum(v, digits) {
   var d = (digits === undefined) ? 2 : digits;
   return Number(v).toLocaleString(undefined, { maximumFractionDigits: d });
 }
+function fmtBool(v) {
+  if (v === undefined || v === null) return 'null (no signal)';
+  return v ? 'true' : 'false';
+}
 function pctClass(p) {
   if (p === undefined || p === null) return '';
   if (p >= state.critical) return 'bad';
@@ -108,183 +117,274 @@ function bar(percent) {
   var p = (percent === undefined || percent === null) ? 0 : Math.max(0, Math.min(100, percent));
   return '<span class="bar"><i class="' + pctClass(percent) + '" style="width:' + p + '%"></i></span>';
 }
-function kv(k, v) { return '<div class="kv"><span>' + k + '</span><span>' + v + '</span></div>'; }
+function cell(inner, tip, cls) {
+  return '<td' + (cls ? ' class="' + cls + '"' : '') + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + inner + '</td>';
+}
+function join(lines) { return lines.filter(function (l) { return l !== '' && l !== undefined && l !== null; }).join('\n'); }
 
-function windowBox(title, w) {
-  var html = '<div class="box"><h3>' + title + ' window</h3>';
-  if (!w || w.used === undefined) return html + '<div class="muted">no data</div></div>';
-  html += kv('used', '$' + fmtNum(w.used, 4) + ' / ' + (w.cap === undefined ? '-' : '$' + fmtNum(w.cap, 2)));
-  html += '<div style="margin:6px 0">' + bar(w.used_percent) + '</div>';
-  html += kv('percent', w.used_percent === undefined ? '-' : fmtNum(w.used_percent, 2) + '%');
-  html += kv('headroom', w.headroom === undefined ? '-' : '$' + fmtNum(w.headroom, 4));
-  html += kv('resets', w.reset_at ? fmtTime(w.reset_at) + ' <span class="muted">(' + esc(w.resets_in) + ')</span>' : '-');
-  if (w.blocked) {
-    html += '<div class="' + (w.blocked_effective ? 'bad' : 'warn') + '">' + (w.blocked_effective ? 'window cap reached' : 'cap reached; prepaid credits bypass it') + '</div>';
+function windowCell(w) {
+  if (!w || w.used === undefined) {
+    return { text: '<span class="muted">n/a</span>', tip: 'no /alpha/billing/credits reading for this window yet' };
   }
-  return html + '</div>';
+  var pct = w.used_percent;
+  var text = bar(pct) + '<span class="mono ' + pctClass(pct) + '">' + fmtNum(pct, 1) + '%</span>';
+  var tip = join([
+    'used:  $' + fmtNum(w.used, 6),
+    'cap:   $' + fmtNum(w.cap, 2),
+    'headroom: $' + fmtNum(w.headroom, 6),
+    'percent: ' + fmtNum(pct, 2) + '%',
+    'exceeded: ' + fmtBool(w.exceeded),
+    'blocked: ' + (w.blocked ? 'yes' : 'no') + (w.blocked ? '  (effective: ' + (w.blocked_effective ? 'yes' : 'no — prepaid credits bypass caps') + ')' : ''),
+    'reset at: ' + (w.reset_at ? fmtTime(w.reset_at) : 'unknown'),
+    'resets in: ' + (w.resets_in || 'unknown'),
+  ]);
+  return { text: text, tip: tip };
 }
 
-function accountCard(a) {
+function statusBadge(status) {
+  if (!status) return '';
+  return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
+}
+
+function accountRow(a) {
   var plan = a.plan || {};
   var bal = a.balance || {};
-  var badge = '';
-  if (a.disabled) badge += '<span class="badge muted">disabled</span>';
-  if (a.stale) badge += '<span class="badge warn">stale</span>';
-  if (plan.status) badge += '<span class="badge ' + (plan.status === 'active' ? 'ok' : 'bad') + '">' + esc(plan.status) + '</span>';
-  if (plan.cancel_at_period_end) badge += '<span class="badge warn">cancels at period end</span>';
-  if (plan.shared_keys > 1) badge += '<span class="badge warn">shared credit pool</span>';
+  var id = a.identity || {};
 
-  var html = '<div class="card"><div class="acct-head"><b>' + esc(a.name) + '</b><span class="muted">…' + esc(a.key_suffix) + '</span>' + badge + '</div>';
+  var badges = '';
+  if (a.disabled) badges += ' <span class="badge muted">disabled</span>';
+  if (a.stale) badges += ' <span class="badge warn">stale</span>';
+  if (plan.shared_keys > 1) badges += ' <span class="badge warn">shared pool</span>';
 
-  var idParts = [];
-  if (a.identity) {
-    if (a.identity.user_name) idParts.push(esc(a.identity.user_name));
-    if (a.identity.name) idParts.push(esc(a.identity.name));
-    if (a.identity.email) idParts.push(esc(a.identity.email));
-    if (a.identity.org_id) idParts.push('org ' + esc(a.identity.org_id));
-  }
-  if (idParts.length) html += '<div class="muted">' + idParts.join(' · ') + '</div>';
-  if (a.providers && a.providers.length) html += '<div class="muted">' + esc(a.providers.join(', ')) + '</div>';
+  var acctText = '<b>' + esc(a.name) + '</b>' + badges
+    + (a.key_suffix ? '<br><span class="muted">…' + esc(a.key_suffix) + '</span>' : '');
+  var acctTip = join([
+    'providers: ' + ((a.providers && a.providers.length) ? a.providers.join(', ') : '-'),
+    'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
+    id.email ? 'email: ' + id.email : '',
+    id.org_id ? 'org: ' + id.org_id : '',
+    'disabled: ' + (a.disabled ? 'yes' : 'no'),
+    'stale: ' + (a.stale ? 'yes' : 'no'),
+    'refreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'),
+    (a.data_age_seconds !== undefined && a.data_age_seconds !== null) ? 'data age: ' + a.data_age_seconds + 's' : '',
+    a.attempted_at ? 'last attempt: ' + fmtTime(a.attempted_at) : '',
+  ]);
 
-  html += '<div class="grid" style="margin-top:12px">';
-  var planHtml = '<div class="box"><h3>Plan</h3>';
-  planHtml += kv('plan', plan.id ? esc(plan.name || plan.id) + ' <span class="muted">(' + esc(plan.id) + ')</span>' : '<span class="muted">no subscription</span>');
-  if (plan.id && plan.known === false) planHtml += '<div class="warn">unknown planId; showing raw values only</div>';
-  if (plan.status) planHtml += kv('status', esc(plan.status));
-  if (plan.current_period_start) planHtml += kv('period', fmtTime(plan.current_period_start) + ' → ' + fmtTime(plan.current_period_end));
-  if (plan.days_remaining !== undefined && plan.days_remaining !== null) planHtml += kv('days left', plan.days_remaining);
-  if (plan.period_elapsed_percent !== undefined && plan.period_elapsed_percent !== null) {
-    planHtml += '<div style="margin:6px 0">' + bar(plan.period_elapsed_percent) + '</div>';
-    planHtml += kv('elapsed', fmtNum(plan.period_elapsed_percent, 1) + '%');
-  }
-  if (plan.subscription_id) planHtml += kv('subscription', '<span class="muted">' + esc(plan.subscription_id) + '</span>');
-  html += planHtml + '</div>';
+  var planText = plan.id
+    ? '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status)
+    : '<span class="muted">no subscription</span>';
+  var planTip = plan.id ? join([
+    'planId: ' + plan.id,
+    plan.marketing_name ? 'marketing name: ' + plan.marketing_name : '',
+    plan.known === false ? 'catalog: UNKNOWN planId — raw API values only' : 'catalog: known plan',
+    'status: ' + (plan.status || '-'),
+    plan.quantity !== undefined ? 'quantity: ' + plan.quantity : '',
+    'cancel at period end: ' + (plan.cancel_at_period_end ? 'yes' : 'no'),
+    plan.subscription_id ? 'subscription: ' + plan.subscription_id : '',
+    plan.price_id ? 'price: ' + plan.price_id : '',
+    plan.created_at ? 'created: ' + fmtTime(plan.created_at) : '',
+    plan.pending_phase ? 'pending phase: ' + JSON.stringify(plan.pending_phase) : '',
+  ]) : 'no active subscription reported by /alpha/billing/subscriptions';
 
-  var balHtml = '<div class="box"><h3>Credits</h3>';
-  if (bal.monthly_remaining !== undefined) {
-    balHtml += kv('monthly remaining', '$' + fmtNum(bal.monthly_remaining, 4));
-    if (bal.monthly_included !== undefined) balHtml += kv('included', '$' + fmtNum(bal.monthly_included, 2));
-    if (bal.monthly_consumed !== undefined) balHtml += kv('consumed', '$' + fmtNum(bal.monthly_consumed, 4));
-    if (bal.monthly_consumed_percent !== undefined) {
-      balHtml += '<div style="margin:6px 0">' + bar(bal.monthly_consumed_percent) + '</div>';
-      balHtml += kv('consumed', fmtNum(bal.monthly_consumed_percent, 1) + '%');
-    }
+  var credText, credTip;
+  if (bal.monthly_remaining === undefined) {
+    credText = '<span class="muted">n/a</span>';
+    credTip = 'no /alpha/billing/credits reading yet';
   } else {
-    balHtml += '<div class="muted">no data</div>';
-  }
-  if (bal.purchased_credits !== undefined) balHtml += kv('purchased', '$' + fmtNum(bal.purchased_credits, 4));
-  if (bal.free_credits !== undefined) balHtml += kv('free', '$' + fmtNum(bal.free_credits, 4));
-  if (bal.total_remaining !== undefined) balHtml += kv('total remaining', '$' + fmtNum(bal.total_remaining, 4));
-  if (bal.limited !== undefined) balHtml += kv('windows enforced', bal.limited ? 'yes' : 'no');
-  if (bal.below_threshold) balHtml += '<div class="warn">below credit threshold</div>';
-  html += balHtml + '</div>';
-  html += '</div>';
-
-  html += '<div class="grid" style="margin-top:12px">';
-  html += windowBox('5-hour', (a.windows || {})['5h']);
-  html += windowBox('Weekly', (a.windows || {}).weekly);
-  html += '</div>';
-
-  if (a.period_summary) {
-    var s = a.period_summary;
-    html += '<div class="box" style="margin-top:12px"><h3>Billing-period usage</h3><div class="grid">';
-    html += '<div>' + kv('requests', fmtNum(s.requests, 0)) + kv('completed', fmtNum(s.completed, 0)) + kv('failed', fmtNum(s.failed, 0)) + kv('success rate', fmtNum(s.success_rate, 2) + '%') + '</div>';
-    html += '<div>' + kv('tokens in', fmtNum(s.tokens_in, 0)) + kv('tokens out', fmtNum(s.tokens_out, 0)) + kv('tokens total', fmtNum(s.tokens_total, 0)) + '</div>';
-    html += '<div>' + kv('cost', '$' + fmtNum(s.total_cost, 4)) + kv('avg cost', '$' + fmtNum(s.average_cost, 6)) + kv('since', s.since ? fmtTime(s.since) : '-') + (s.period_basis ? kv('basis', esc(s.period_basis)) : '') + '</div>';
-    html += '</div></div>';
+    var inc = bal.monthly_included;
+    var cons = bal.monthly_consumed_percent;
+    credText = '<span class="mono">$' + fmtNum(bal.monthly_remaining, 2)
+      + (inc === undefined ? '' : ' / $' + fmtNum(inc, 0)) + '</span>'
+      + (inc === undefined ? '' : '<br>' + bar(cons) + '<span class="mono ' + pctClass(cons) + '">' + fmtNum(cons, 1) + '%</span>');
+    credTip = join([
+      'monthly remaining: $' + fmtNum(bal.monthly_remaining, 6),
+      inc === undefined ? 'included allowance: unknown (planId not in catalog)' : 'included allowance: $' + fmtNum(inc, 2),
+      bal.monthly_consumed !== undefined ? 'consumed: $' + fmtNum(bal.monthly_consumed, 6) + '  (' + fmtNum(cons, 2) + '%)' : '',
+      'purchased credits: $' + fmtNum(bal.purchased_credits, 6) + '  (exempt from window caps)',
+      'free credits: $' + fmtNum(bal.free_credits, 6),
+      'total remaining: $' + fmtNum(bal.total_remaining, 6),
+      'low-credit warning: ' + (bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'),
+      'rolling windows enforced: ' + (bal.limited ? 'yes' : 'no'),
+      'window exceeded flag: ' + fmtBool(bal.window_exceeded),
+      bal.sandbox_access ? 'sandbox access: yes' + (bal.sandbox_minutes !== undefined ? ' (' + fmtNum(bal.sandbox_minutes, 0) + ' min)' : '') : '',
+    ]);
   }
 
-  if (a.errors) {
-    var keys = Object.keys(a.errors);
-    if (keys.length) {
-      html += '<div class="warn" style="margin-top:10px">';
-      for (var i = 0; i < keys.length; i++) html += '<div>' + esc(keys[i]) + ': ' + esc(a.errors[keys[i]]) + '</div>';
-      html += '</div>';
-    }
+  var perText, perTip;
+  if (!plan.current_period_start) {
+    perText = '<span class="muted">n/a</span>';
+    perTip = 'no billing period reported';
+  } else {
+    var dr = plan.days_remaining;
+    perText = '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
+      + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>';
+    perTip = join([
+      'billing period start: ' + fmtTime(plan.current_period_start),
+      'billing period end:   ' + fmtTime(plan.current_period_end),
+      'days remaining: ' + (dr === undefined || dr === null ? '-' : dr),
+      'period elapsed: ' + fmtNum(plan.period_elapsed_percent, 2) + '%',
+      'monthly credits reset at the period end',
+    ]);
   }
 
-  var foot = [];
-  if (a.refreshed_at) foot.push('refreshed ' + fmtTime(a.refreshed_at));
-  if (a.data_age_seconds !== undefined && a.data_age_seconds !== null) foot.push(a.data_age_seconds + 's old');
-  if (a.attempted_at) foot.push('last attempt ' + fmtTime(a.attempted_at));
-  if (foot.length) html += '<div class="muted" style="margin-top:8px">' + foot.join(' · ') + '</div>';
+  var s = a.period_summary;
+  var reqText, reqTip;
+  if (!s) {
+    reqText = '<span class="muted">n/a</span>';
+    reqTip = 'usage summary unavailable or disabled (include-usage-summary)';
+  } else {
+    reqText = '<span class="mono">' + fmtNum(s.requests, 0) + '</span>'
+      + ' <span class="muted">·</span> <span class="' + (s.success_rate >= 99 ? 'ok' : 'warn') + '">' + fmtNum(s.success_rate, 0) + '%</span>';
+    reqTip = join([
+      'requests: ' + s.requests + '  (completed ' + s.completed + ', failed ' + s.failed + ')',
+      'success rate: ' + fmtNum(s.success_rate, 2) + '%',
+      'tokens in / out / total: ' + fmtNum(s.tokens_in, 0) + ' / ' + fmtNum(s.tokens_out, 0) + ' / ' + fmtNum(s.tokens_total, 0),
+      'cost: $' + fmtNum(s.total_cost, 6) + '   average: $' + fmtNum(s.average_cost, 6),
+      'credits: $' + fmtNum(s.total_credits, 6) + '  (monthly $' + fmtNum(s.total_monthly_credits, 6)
+        + ', purchased $' + fmtNum(s.total_purchased_credits, 6) + ', free $' + fmtNum(s.total_free_credits, 6) + ')',
+      'requested since: ' + (s.since || '-'),
+      'effective since: ' + (s.since_effective || '-') + '   [' + (s.granularity || 'unknown') + ' bucketing]',
+      'period basis: ' + (s.period_basis || '-'),
+    ]);
+  }
 
-  return html + '</div>';
+  var errs = a.errors ? Object.keys(a.errors) : [];
+  var healthText = errs.length
+    ? '<span class="bad">' + errs.length + ' err</span>'
+    : '<span class="ok">ok</span>';
+  var healthTip = errs.length
+    ? join(errs.map(function (k) { return k + ': ' + a.errors[k]; }))
+    : 'all /alpha/* endpoints healthy';
+  healthTip += '\nrefreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never');
+  if (a.data_age_seconds !== undefined && a.data_age_seconds !== null) healthTip += '\ndata age: ' + a.data_age_seconds + 's';
+  if (a.stale) healthTip += '\nSTALE: older than usage-stale-after';
+
+  var w5 = windowCell((a.windows || {})['5h']);
+  var ww = windowCell((a.windows || {}).weekly);
+
+  return '<tr>'
+    + cell(acctText, acctTip)
+    + cell(planText, planTip)
+    + cell(w5.text, '5-hour window\n' + w5.tip, 'tip')
+    + cell(ww.text, 'weekly window\n' + ww.tip, 'tip')
+    + cell(credText, credTip, 'tip')
+    + cell(perText, perTip, 'tip')
+    + cell(reqText, reqTip, 'tip')
+    + cell(healthText, healthTip, 'tip')
+    + '</tr>';
 }
 
-async function api(path, options) {
-  var resp = await fetch(BASE + path, Object.assign({ headers: headers() }, options || {}));
-  if (!resp.ok && resp.status !== 202) throw new Error('HTTP ' + resp.status + (resp.status === 401 ? ' (bad management key?)' : ''));
+function render(status, mode) {
+  state.warn = status.warn_percent || 80;
+  state.critical = status.critical_percent || 95;
+  document.getElementById('meta').textContent =
+    'v' + status.version + ' · ' + status.api_base_url
+    + ' · refresh ' + status.refresh_interval
+    + ' · stale after ' + status.stale_after
+    + ' · ' + fmtTime(status.generated_at);
+  document.getElementById('mode').textContent = mode === 'management'
+    ? 'management view'
+    : 'read-only view · no management key required · hover any cell for details';
+
+  var html = '';
+  if (status.config_error) html += '<div class="card bad">config error: ' + esc(status.config_error) + '</div>';
+  var shared = status.shared_subscriptions || [];
+  for (var i = 0; i < shared.length; i++) {
+    var g = shared[i];
+    html += '<div class="card warn">Shared credit pool: ' + esc(g.accounts.join(', '))
+      + ' share one subscription (' + esc(g.plan_id || 'unknown plan') + ') — one balance for all of them.</div>';
+  }
+  if (!status.accounts.length) {
+    html += '<div class="card muted">No CommandCode API keys discovered. Check cpa-config-path and that a credential base URL contains commandcode.ai.</div>';
+    document.getElementById('content').innerHTML = html;
+    return;
+  }
+  html += '<div class="card"><table class="grid"><tr>'
+    + '<th>Account</th><th>Plan</th><th>5h</th><th>Weekly</th><th>Monthly credits</th><th>Period</th><th>Requests</th><th>Health</th>'
+    + '</tr>';
+  for (var j = 0; j < status.accounts.length; j++) html += accountRow(status.accounts[j]);
+  html += '</table><div class="muted" style="margin-top:8px">Hover any cell for the full reading. Percentages are credit/USD-equivalent value against the plan window cap.</div></div>';
+  document.getElementById('content').innerHTML = html;
+}
+
+async function fetchJSON(url, options) {
+  var resp = await fetch(url, options || {});
+  if (!resp.ok) throw new Error('HTTP ' + resp.status + (resp.status === 401 ? ' (bad management key?)' : ''));
   return resp.json();
 }
 
 async function load() {
-  document.getElementById('error').textContent = '';
-  try {
-    try { sessionStorage.setItem('ccp-key', keyInput.value.trim()); } catch (e) {}
-    var data = await api('/status');
-    state.warn = data.warn_percent || 80;
-    state.critical = data.critical_percent || 95;
-    document.getElementById('meta').textContent = 'v' + data.version + ' · ' + data.api_base_url + ' · refresh ' + data.refresh_interval + ' · stale after ' + data.stale_after + ' · ' + fmtTime(data.generated_at);
+  var err = document.getElementById('error');
+  err.textContent = '';
+  var key = keyInput.value.trim();
+  try { sessionStorage.setItem('ccp-key', key); } catch (e) {}
+  document.getElementById('refresh').hidden = !key;
 
-    var html = '';
-    if (data.config_error) html += '<div class="card bad">config error: ' + esc(data.config_error) + '</div>';
-    var shared = data.shared_subscriptions || [];
-    for (var i = 0; i < shared.length; i++) {
-      var g = shared[i];
-      html += '<div class="card warn">Shared credit pool: ' + esc(g.accounts.join(', ')) + ' share subscription ' + esc(g.subscription_id) + ' (' + esc(g.plan_id || 'unknown plan') + ') — one balance for all of them.</div>';
+  var status = null;
+  var mode = 'public';
+  if (key) {
+    try {
+      status = await fetchJSON(MGMT + '/status', { headers: authHeaders() });
+      mode = 'management';
+    } catch (e) {
+      err.textContent = 'management key not accepted (' + e.message + '); showing the read-only view';
     }
-    if (!data.accounts.length) {
-      html += '<div class="card muted">No CommandCode API keys discovered. Check cpa-config-path and that a credential base URL contains commandcode.ai.</div>';
-    }
-    for (var j = 0; j < data.accounts.length; j++) html += accountCard(data.accounts[j]);
-    document.getElementById('content').innerHTML = html;
-  } catch (err) {
-    document.getElementById('error').textContent = String(err);
   }
+  if (!status) {
+    try {
+      status = await fetchJSON(RES + '/status.json');
+    } catch (e) {
+      throw new Error('no data available: the read-only endpoint failed (' + e.message
+        + '). Either enable public-status or enter the management key.');
+    }
+  }
+  render(status, mode);
 }
 
 async function plansHTML() {
-  var data = await api('/plans');
-  var html = '<div class="card"><h2>Plan catalog</h2><table><tr><th>planId</th><th>Name</th><th>Marketing</th><th>Monthly credits</th><th>5h cap</th><th>Weekly cap</th></tr>';
+  var data;
+  try { data = await fetchJSON(RES + '/plans'); }
+  catch (e) { data = await fetchJSON(MGMT + '/plans', { headers: authHeaders() }); }
+  var html = '<div class="card"><h2>Plan catalog</h2><table class="grid"><tr><th>planId</th><th>Name</th><th>Marketing</th><th>Monthly credits</th><th>5h cap</th><th>Weekly cap</th></tr>';
   for (var i = 0; i < data.plans.length; i++) {
     var p = data.plans[i];
-    html += '<tr><td>' + esc(p.id) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.marketing_name || '') + '</td>';
-    html += '<td>' + (p.includes_credits ? '$' + fmtNum(p.monthly_credits, 2) : 'pay-as-you-go') + '</td>';
-    html += '<td>' + (p.five_hour_cap === undefined ? '-' : '$' + fmtNum(p.five_hour_cap, 2)) + '</td>';
-    html += '<td>' + (p.weekly_cap === undefined ? '-' : '$' + fmtNum(p.weekly_cap, 2)) + '</td></tr>';
+    html += '<tr><td class="mono">' + esc(p.id) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.marketing_name || '')
+      + '</td><td>' + (p.includes_credits ? '$' + fmtNum(p.monthly_credits, 2) : 'pay-as-you-go')
+      + '</td><td>' + (p.five_hour_cap === undefined ? '-' : '$' + fmtNum(p.five_hour_cap, 2))
+      + '</td><td>' + (p.weekly_cap === undefined ? '-' : '$' + fmtNum(p.weekly_cap, 2)) + '</td></tr>';
   }
-  html += '</table><div class="muted" style="margin-top:8px">Reference data from the CommandCode CLI bundle and pricing page; the live API remains authoritative for caps and balances.</div></div>';
-  return html;
+  return html + '</table><div class="muted" style="margin-top:8px">Reference data from the CommandCode CLI bundle and pricing page; the live API remains authoritative for caps and balances.</div></div>';
 }
 
-document.getElementById('load').addEventListener('click', load);
+document.getElementById('load').addEventListener('click', function () {
+  load().catch(function (e) { document.getElementById('error').textContent = String(e); });
+});
 document.getElementById('refresh').addEventListener('click', async function () {
-  try { await api('/refresh', { method: 'POST', body: '{}' }); setTimeout(load, 1500); }
-  catch (err) { document.getElementById('error').textContent = String(err); }
+  try {
+    await fetchJSON(MGMT + '/refresh', { method: 'POST', headers: authHeaders(), body: '{}' });
+    setTimeout(function () { load().catch(function () {}); }, 1500);
+  } catch (e) { document.getElementById('error').textContent = String(e); }
 });
 document.getElementById('togglePlans').addEventListener('click', async function () {
   var el = document.getElementById('plans');
-  if (!el.style.display || el.style.display === 'none') {
-    try { el.innerHTML = await plansHTML(); el.style.display = 'block'; }
-    catch (err) { document.getElementById('error').textContent = String(err); }
+  if (el.hidden) {
+    try { el.innerHTML = await plansHTML(); el.hidden = false; }
+    catch (e) { document.getElementById('error').textContent = String(e); }
   } else {
-    el.style.display = 'none';
+    el.hidden = true;
   }
 });
-keyInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') load(); });
+keyInput.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') load().catch(function (err) { document.getElementById('error').textContent = String(err); });
+});
 
 try { keyInput.value = sessionStorage.getItem('ccp-key') || ''; } catch (e) {}
-if (keyInput.value) {
-  load();
-} else {
+if (!keyInput.value) {
   var stored = readStoredKey();
-  if (stored && stored.source === 'cpamp') {
-    keyInput.value = stored.key;
-    document.getElementById('meta').textContent = 'management key loaded from CPA Manager Plus';
-    load();
-  }
+  if (stored) keyInput.value = stored;
 }
+document.getElementById('refresh').hidden = !keyInput.value.trim();
+load().catch(function (e) { document.getElementById('error').textContent = String(e); });
 </script>
 </body>
 </html>`
