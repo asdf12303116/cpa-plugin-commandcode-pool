@@ -118,7 +118,7 @@ func TestBuildPlanStatusPeriodMath(t *testing.T) {
 	end := start.AddDate(0, 1, 0)
 	now := start.Add(10 * 24 * time.Hour)
 	sub := &subscriptionData{
-		ID:                 "sub_1U8cgyDSZgxV3MJKfPSSpm9f",
+		ID:                 "sub_EXAMPLE1234567890",
 		Status:             "active",
 		PlanID:             "individual-goat",
 		CurrentPeriodStart: start.Format(time.RFC3339),
@@ -141,7 +141,7 @@ func TestBuildPlanStatusPeriodMath(t *testing.T) {
 }
 
 func TestMaskEmailAndHumanDuration(t *testing.T) {
-	if got := maskEmail("a675750333@gmail.com"); got != "a6***3@gmail.com" {
+	if got := maskEmail("abcdefgh@example.com"); got != "ab***h@example.com" {
 		t.Errorf("maskEmail = %q", got)
 	}
 	if got := maskEmail("ab@x.com"); got != "***@x.com" {
@@ -184,10 +184,10 @@ func TestBuildStatusShapeAndSecretRedaction(t *testing.T) {
 	snap.RefreshedAt = now
 	snap.Whoami = &whoamiResponse{
 		Success: true,
-		User:    whoamiUser{ID: "09dd0bf8-97ab-4edc-8b32-dfb4824097af", Name: "Chen", Email: "a675750333@gmail.com", UserName: "asdf12303116"},
+		User:    whoamiUser{ID: "11111111-2222-3333-4444-555555555555", Name: "Test User", Email: "abcdefgh@example.com", UserName: "tester"},
 	}
 	snap.Subscription = &subscriptionData{
-		ID:                 "sub_1U8cgyDSZgxV3MJKfPSSpm9f",
+		ID:                 "sub_EXAMPLE1234567890",
 		Status:             "active",
 		PlanID:             "individual-goat",
 		CurrentPeriodStart: now.Add(-10 * 24 * time.Hour).Format(time.RFC3339),
@@ -209,7 +209,7 @@ func TestBuildStatusShapeAndSecretRedaction(t *testing.T) {
 	if out.Plan.Name != "GOAT" || out.Plan.Status != "active" {
 		t.Fatalf("plan = %+v", out.Plan)
 	}
-	if out.Identity.Email != "a6***3@gmail.com" || out.Identity.UserName != "asdf12303116" {
+	if out.Identity.Email != "ab***h@example.com" || out.Identity.UserName != "tester" {
 		t.Fatalf("identity = %+v", out.Identity)
 	}
 	if out.Balance.MonthlyIncluded == nil || *out.Balance.MonthlyIncluded != 70 {

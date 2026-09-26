@@ -85,7 +85,7 @@ func TestOrgQueryOmitsEmpty(t *testing.T) {
 	if got := orgQuery("").Encode(); got != "" {
 		t.Fatalf("empty orgId must be omitted, got %q", got)
 	}
-	if got := orgQuery(" 09dd0bf8-97ab-4edc-8b32-dfb4824097af ").Get("orgId"); got != "09dd0bf8-97ab-4edc-8b32-dfb4824097af" {
+	if got := orgQuery(" 11111111-2222-3333-4444-555555555555 ").Get("orgId"); got != "11111111-2222-3333-4444-555555555555" {
 		t.Fatalf("orgId = %q", got)
 	}
 }
