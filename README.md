@@ -79,14 +79,14 @@ checksum and writes the versioned library under `plugins/linux/amd64/` or
 
 ```sh
 make test
-make build VERSION=0.2.1
-make build VERSION=0.2.1 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
-make package VERSION=0.2.1                                       # plugin-store zip + checksums
-make package VERSION=0.2.1 ARCHS="amd64 arm64"                   # both architectures
+make build VERSION=0.2.2
+make build VERSION=0.2.2 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
+make package VERSION=0.2.2                                       # plugin-store zip + checksums
+make package VERSION=0.2.2 ARCHS="amd64 arm64"                   # both architectures
 ```
 
-Copy `dist/commandcode-pool-v0.2.1.so` into CPA's `plugins/linux/amd64/`
-directory (use `dist/commandcode-pool-v0.2.1-arm64.so` and
+Copy `dist/commandcode-pool-v0.2.2.so` into CPA's `plugins/linux/amd64/`
+directory (use `dist/commandcode-pool-v0.2.2-arm64.so` and
 `plugins/linux/arm64/` on arm64). The plugin ID is derived from the filename by
 removing the version suffix, so the packaged `commandcode-pool.so` registers as
 `commandcode-pool`.
@@ -158,22 +158,24 @@ Open the plugin page at:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-The page shows one compact row per account and puts the full reading into each
-cell's native tooltip. Columns depend on the plan kind, because CommandCode
-limits the two kinds differently:
+The page shows one compact row per account and puts the full reading into a
+styled hover panel that matches the page's cards instead of the browser's
+default tooltip. Columns depend on the plan kind, because CommandCode limits the
+two kinds differently:
 
 | Plan kind | Columns |
 | --- | --- |
-| Subscription (Go/GOAT/Pro/Max/Ultra/Teams) | Account, Plan, 5h, Weekly, Period, Spend, Health |
+| Subscription (Go/GOAT/Pro/Max/Ultra/Teams) | Account, Plan, 5h, Weekly, Period, Health |
 | Pay-as-you-go (`individual-provider`) | Account, Plan, Credits, Spend, Health |
 
 Subscription plans are throttled by the rolling credit-value windows, so their
 row leads with `5h` and `Weekly` (value used against the cap, with reset
-timestamp and countdown in the tooltip). They deliberately have **no credits
-column**: a subscription has no prepaid/top-up balance, so credit fields would
-only add noise. Pay-as-you-go accounts have no windows and are limited by their
-prepaid balance instead, so they show `Credits` (`$remaining` plus what was
-topped up) and hide the window columns.
+timestamp and countdown in the hover panel). They deliberately carry **neither a
+credits nor a spend column**: a subscription has no prepaid/top-up balance and
+its day-to-day limit is the window, so those numbers would only add noise.
+Pay-as-you-go accounts have no windows and are limited by their prepaid balance
+instead, so they show `Credits` (`$remaining` plus what was topped up) and
+`Spend`, and hide the window columns.
 
 The two groups are labelled with the flag itself — `windowLimits.limited = true`
 (**windows enforced**) vs `= false` — because that field is CommandCode's own
@@ -183,14 +185,14 @@ presenting a guess as fact.
 
 Every column is **amount-based** — CommandCode throttles on credit/USD-equivalent
 value rather than request quotas. Request counts, tokens and success rate appear
-only as tooltip diagnostics.
+only as hover diagnostics.
 
 **The page loads by itself — no clicking required.** On open it resolves the
 management key automatically from CPA Manager Plus' persisted auth store, from
 the key this page remembered earlier, or from the current tab, and immediately
 fetches the data. A key typed or pasted into the field also triggers the load on
-its own (Enter works too); the Load button is only a fallback. Keys are
-remembered per browser, and **Forget key** removes the stored value.
+its own (Enter works too); the Load button is only a fallback. The key is
+remembered per browser so later visits load without any interaction.
 
 ## Management API
 
@@ -209,7 +211,7 @@ Abbreviated `status` response:
 
 ```json
 {
-  "version": "0.2.1",
+  "version": "0.2.2",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -331,7 +333,7 @@ shown with raw API values only (`"known": false`).
 ```sh
 make test     # gofmt check is in CI; runs go vet + go test
 make build
-make package VERSION=0.2.1
+make package VERSION=0.2.2
 make clean
 ```
 
@@ -356,7 +358,8 @@ GitHub Release.
 - The resource page is served unauthenticated, but it contains only the static
   page shell: every account reading still requires the CPA management key.
 - The page remembers the management key in this browser's `localStorage` so it
-  can auto-load on later visits. Use **Forget key** on the page to remove it.
+  can auto-load on later visits; clear it with your browser's site-data/clear-
+  storage controls when you no longer want it kept.
 
 ## License
 

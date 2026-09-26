@@ -68,14 +68,14 @@ plugins:
 
 ```sh
 make test
-make build VERSION=0.2.1
-make build VERSION=0.2.1 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
-make package VERSION=0.2.1                                       # 生成插件商店 zip 与校验和
-make package VERSION=0.2.1 ARCHS="amd64 arm64"                   # 两种架构
+make build VERSION=0.2.2
+make build VERSION=0.2.2 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
+make package VERSION=0.2.2                                       # 生成插件商店 zip 与校验和
+make package VERSION=0.2.2 ARCHS="amd64 arm64"                   # 两种架构
 ```
 
-将 `dist/commandcode-pool-v0.2.1.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
-（arm64 使用 `dist/commandcode-pool-v0.2.1-arm64.so` 与 `plugins/linux/arm64/`）。
+将 `dist/commandcode-pool-v0.2.2.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
+（arm64 使用 `dist/commandcode-pool-v0.2.2-arm64.so` 与 `plugins/linux/arm64/`）。
 插件 ID 由文件名去掉版本后缀得到，因此打包出的 `commandcode-pool.so` 注册为
 `commandcode-pool`。
 
@@ -142,30 +142,30 @@ plugins:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-页面每个账号一行（紧凑单行表格），完整读数放在单元格的原生鼠标提示里。列的组成取决于套餐类型，
-因为 CommandCode 对两类套餐的限流方式不同：
+页面每个账号一行（紧凑单行表格），完整读数放在与页面卡片同风格的悬浮面板里（不是浏览器默认
+提示框）。列的组成取决于套餐类型，因为 CommandCode 对两类套餐的限流方式不同：
 
 | 套餐类型 | 列 |
 | --- | --- |
-| 订阅制（Go/GOAT/Pro/Max/Ultra/Teams） | Account, Plan, 5h, Weekly, Period, Spend, Health |
+| 订阅制（Go/GOAT/Pro/Max/Ultra/Teams） | Account, Plan, 5h, Weekly, Period, Health |
 | 按量付费（`individual-provider`） | Account, Plan, Credits, Spend, Health |
 
 订阅制由滚动额度窗口限流，所以行内以 `5h`、`Weekly` 为主（已用金额对比上限，重置时间与
-倒计时在 tooltip 里），并且**刻意不显示 credits 列** —— 订阅制没有充值/预付余额，显示
-只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示 `Credits`（剩余金额及充值
-金额）并隐藏窗口列。
+倒计时在悬浮面板里），并且**刻意不显示 credits 与 spend 列** —— 订阅制没有充值/预付余额，
+日常限制就是窗口，这两列只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示
+`Credits`（剩余金额及充值金额）和 `Spend`，并隐藏窗口列。
 
 分组标题直接用该字段本身标注：`windowLimits.limited = true`（**windows enforced**）
 与 `= false` —— 这个字段就是 CommandCode 自己的 plan / 非 plan 判据。当 API 尚未返回该
 字段时，回退用 `planId` 判断，并在 tooltip 中明确标注是推断值，不会把猜测当成事实。
 
 每一列都是**金额口径** —— CommandCode 的限流基于额度/USD 等值而非请求数；请求数、token、
-成功率只作为 tooltip 中的诊断信息。
+成功率只作为悬浮面板中的诊断信息。
 
 **页面会自动加载，无需任何点击。** 打开时会依次从 CPA Manager Plus 持久化的鉴权存储、
 本页之前记住的 key、当前标签页中自动解析管理密钥并立即拉取数据；在输入框里粘贴或输入
-key 也会自动触发加载（回车同理），Load 按钮只是兜底。key 按浏览器记住，可用
-**Forget key** 清除。
+key 也会自动触发加载（回车同理），Load 按钮只是兜底。key 会按浏览器记住，之后访问无需
+任何交互即可自动加载。
 
 ## 管理 API
 
@@ -183,7 +183,7 @@ key 也会自动触发加载（回车同理），Load 按钮只是兜底。key �
 
 ```json
 {
-  "version": "0.2.1",
+  "version": "0.2.2",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -295,7 +295,7 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 ```sh
 make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
-make package VERSION=0.2.1
+make package VERSION=0.2.2
 make clean
 ```
 
@@ -315,8 +315,8 @@ CI 还会检查格式，并为 amd64 与 arm64 编译 C ABI 动态库。推送 `
 - 账号运行状态以 API Key 的 SHA-256 哈希作为 key。
 - 面板/API 中的邮箱会被打码（`a6***3@gmail.com`）。
 - 资源页无需认证即可访问，但只包含静态页面壳：所有账号读数仍然需要 CPA 管理密钥。
-- 为便于下次自动加载，页面会把管理密钥记住在本浏览器的 `localStorage` 中；可用页面上的
-  **Forget key** 清除。
+- 为便于下次自动加载，页面会把管理密钥记住在本浏览器的 `localStorage` 中；不需要保留时，
+  用浏览器的站点数据/清除存储功能删掉即可。
 
 ## 许可证
 

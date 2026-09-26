@@ -6,7 +6,7 @@
       "name": "CommandCode Pool",
       "description": "Read-only CommandCode subscription monitoring: plan status, billing period, credit balance, and 5-hour/weekly window usage for every CommandCode key in CLIProxyAPI.",
       "author": "asdf12303116",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "repository": "https://github.com/asdf12303116/cpa-plugin-commandcode-pool",
       "homepage": "https://github.com/asdf12303116/cpa-plugin-commandcode-pool",
       "license": "MIT",

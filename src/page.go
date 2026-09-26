@@ -2,17 +2,19 @@ package main
 
 // statusPageHTML is the plugin resource page.
 //
-// The page renders one compact table row per account and puts the full reading
-// into each cell's native tooltip. It loads by itself on open: the management
-// key is taken from CPA Manager Plus' persisted auth store, from this page's own
-// remembered value, or from the current tab, and a key typed or pasted into the
-// field triggers the load automatically, so the Load button is only a fallback.
+// The page renders one compact table row per account and exposes the full
+// reading through a styled hover tooltip. It loads by itself on open: the
+// management key is taken from CPA Manager Plus' persisted auth store, from this
+// page's own remembered value, or from the current tab, and a key typed or
+// pasted into the field triggers the load automatically, so the Load button is
+// only a fallback.
 //
 // CommandCode throttles on credit/USD-equivalent value rather than request
-// quotas, so every column is amount-based. The columns also depend on the plan
-// kind: subscription plans are limited by the rolling 5h/weekly windows, while
-// pay-as-you-go (Provider) accounts have no windows and are limited by their
-// credit balance. Request counts only appear as secondary diagnostics.
+// quotas, so every column is amount-based. Columns also depend on
+// windowLimits.limited, the API's own plan/non-plan discriminator: subscription
+// plans are limited by the rolling 5h/weekly windows and do not need credit or
+// spend columns, while pay-as-you-go (Provider) accounts have no windows and are
+// limited by their prepaid balance. Request counts only appear as diagnostics.
 const statusPageHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -41,7 +43,17 @@ table.grid tr:hover td { background: color-mix(in srgb, CanvasText 5%, transpare
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .badge { display: inline-block; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid currentColor; }
 #error { color: #dc2626; margin: 8px 0; min-height: 16px; font-size: 13px; }
-.tip { cursor: help; }
+td[data-tip-idx] { cursor: help; }
+
+/* Hover tooltip, styled to match the cards instead of the browser default. */
+#tip { position: fixed; z-index: 40; max-width: 380px; padding: 9px 11px; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
+  background: color-mix(in srgb, Canvas 93%, CanvasText 7%);
+  box-shadow: 0 10px 28px color-mix(in srgb, CanvasText 20%, transparent);
+  font-size: 12px; line-height: 1.55; pointer-events: none; }
+#tip .tip-head { font-weight: 600; margin-bottom: 5px; }
+#tip .tip-body { white-space: pre-line; opacity: .9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 </style>
 </head>
 <body>
@@ -55,18 +67,23 @@ table.grid tr:hover td { background: color-mix(in srgb, CanvasText 5%, transpare
     <button id="load">Reload</button>
     <button id="refresh" hidden>Refresh all</button>
     <button id="togglePlans">Plan catalog</button>
-    <button id="forget" hidden title="Remove the remembered key from this browser">Forget key</button>
     <span class="muted" id="keySource"></span>
   </div>
   <div id="error"></div>
 </div>
 <div id="plans" hidden></div>
 <div id="content" class="muted">Loading…</div>
+<div id="tip" hidden></div>
 <script>
 var MGMT = '/v0/management/plugins/commandcode-pool';
 var STORE_KEY = 'ccp-key';
 var keyInput = document.getElementById('key');
-var state = { warn: 80, critical: 95 };
+var contentEl = document.getElementById('content');
+var tipEl = document.getElementById('tip');
+var state = { warn: 80, critical: 95, tipVisible: false };
+// Sorted tips for the current table; cells reference them by index so tip text
+// never has to survive HTML attribute escaping.
+var TIPS = [];
 
 function authHeaders() {
   var value = keyInput.value.trim();
@@ -117,15 +134,52 @@ function rememberKey(key) {
   try { localStorage.setItem(STORE_KEY, key); } catch (e) {}
   try { sessionStorage.setItem(STORE_KEY, key); } catch (e) {}
 }
-function forgetKey() {
-  try { localStorage.removeItem(STORE_KEY); } catch (e) {}
-  try { sessionStorage.removeItem(STORE_KEY); } catch (e) {}
-  keyInput.value = '';
-  document.getElementById('keySource').textContent = '';
-  document.getElementById('forget').hidden = true;
-  document.getElementById('refresh').hidden = true;
-  document.getElementById('content').innerHTML = 'Key forgotten. Paste the management key to load the pool.';
+
+/* ---- hover tooltip ---- */
+
+// tipParts splits "header\nbody" so the header can be styled separately.
+function tipParts(text) {
+  var idx = text.indexOf('\n');
+  if (idx === -1) return { head: '', body: text };
+  return { head: text.slice(0, idx), body: text.slice(idx + 1) };
 }
+function placeTip(x, y) {
+  var margin = 12, offset = 14;
+  var rect = tipEl.getBoundingClientRect();
+  var left = x + offset;
+  var top = y + offset;
+  if (left + rect.width + margin > window.innerWidth) left = Math.max(margin, x - rect.width - offset);
+  if (top + rect.height + margin > window.innerHeight) top = Math.max(margin, y - rect.height - offset);
+  tipEl.style.left = left + 'px';
+  tipEl.style.top = top + 'px';
+}
+function showTipFor(cellEl, ev) {
+  var idx = cellEl.getAttribute('data-tip-idx');
+  var raw = idx === null ? '' : TIPS[Number(idx)];
+  if (!raw) { hideTip(); return; }
+  var parts = tipParts(raw);
+  tipEl.textContent = '';
+  if (parts.head) {
+    var head = document.createElement('div');
+    head.className = 'tip-head';
+    head.textContent = parts.head;
+    tipEl.appendChild(head);
+  }
+  var body = document.createElement('div');
+  body.className = 'tip-body';
+  body.textContent = parts.body;
+  tipEl.appendChild(body);
+  tipEl.hidden = false;
+  state.tipVisible = true;
+  placeTip(ev.clientX, ev.clientY);
+}
+function hideTip() {
+  if (!state.tipVisible) return;
+  tipEl.hidden = true;
+  state.tipVisible = false;
+}
+
+/* ---- formatting ---- */
 
 function esc(s) {
   return String(s === undefined || s === null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -153,13 +207,20 @@ function bar(percent) {
   return '<span class="bar"><i class="' + pctClass(percent) + '" style="width:' + p + '%"></i></span>';
 }
 function cell(inner, tip, cls) {
-  return '<td' + (cls ? ' class="' + cls + '"' : '') + (tip ? ' title="' + esc(tip) + '"' : '') + '>' + inner + '</td>';
+  var attrs = cls ? ' class="' + cls + '"' : '';
+  if (tip) {
+    TIPS.push(tip);
+    attrs += ' data-tip-idx="' + (TIPS.length - 1) + '"';
+  }
+  return '<td' + attrs + '>' + inner + '</td>';
 }
 function join(lines) { return lines.filter(function (l) { return l !== '' && l !== undefined && l !== null; }).join('\n'); }
 function statusBadge(status) {
   if (!status) return '';
   return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
 }
+
+/* ---- plan kind ---- */
 
 // windowsEnforced returns windowLimits.limited, which is CommandCode's own
 // plan/non-plan discriminator: subscription plans enforce rolling 5h/weekly
@@ -184,6 +245,8 @@ function enforcedLabel(a) {
   return 'unknown — no credits reading yet, inferred from planId';
 }
 
+/* ---- cells ---- */
+
 function accountCell(a) {
   var plan = a.plan || {};
   var id = a.identity || {};
@@ -198,7 +261,6 @@ function accountCell(a) {
     'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
     id.email ? 'email: ' + id.email : '',
     id.org_id ? 'org: ' + id.org_id : '',
-    'kind: ' + (isPayAsYouGo(a) ? 'pay-as-you-go (prepaid credit balance)' : 'subscription (rolling windows)'),
     'windows enforced: ' + enforcedLabel(a),
     'disabled: ' + (a.disabled ? 'yes' : 'no'),
     'stale: ' + (a.stale ? 'yes' : 'no'),
@@ -328,14 +390,12 @@ function healthCell(a) {
 function accountRow(a, payg) {
   var acct = accountCell(a);
   var plan = planCell(a);
-  var spend = spendCell(a);
   var health = healthCell(a);
-  var html = '<tr>'
-    + cell(acct.text, acct.tip)
-    + cell(plan.text, plan.tip);
+  var html = '<tr>' + cell(acct.text, acct.tip) + cell(plan.text, plan.tip);
   if (payg) {
     var credits = creditsCell(a);
-    html += cell(credits.text, credits.tip, 'tip');
+    var spend = spendCell(a);
+    html += cell(credits.text, credits.tip, 'tip') + cell(spend.text, spend.tip, 'tip');
   } else {
     var w5 = windowCell((a.windows || {})['5h']);
     var ww = windowCell((a.windows || {}).weekly);
@@ -344,7 +404,7 @@ function accountRow(a, payg) {
     html += cell(ww.text, 'weekly window\n' + ww.tip, 'tip');
     html += cell(period.text, period.tip, 'tip');
   }
-  return html + cell(spend.text, spend.tip, 'tip') + cell(health.text, health.tip, 'tip') + '</tr>';
+  return html + cell(health.text, health.tip, 'tip') + '</tr>';
 }
 
 function tableHTML(accounts, columns, payg) {
@@ -364,8 +424,9 @@ function render(status) {
     + ' · stale after ' + status.stale_after
     + ' · ' + fmtTime(status.generated_at);
   document.getElementById('refresh').hidden = !keyInput.value.trim();
-  document.getElementById('forget').hidden = !keyInput.value.trim();
 
+  hideTip();
+  TIPS.length = 0;
   var html = '';
   if (status.config_error) html += '<div class="card bad">config error: ' + esc(status.config_error) + '</div>';
   var shared = status.shared_subscriptions || [];
@@ -376,7 +437,7 @@ function render(status) {
   }
   if (!status.accounts.length) {
     html += '<div class="card muted">No CommandCode API keys discovered. Check cpa-config-path and that a credential base URL contains commandcode.ai.</div>';
-    document.getElementById('content').innerHTML = html;
+    contentEl.innerHTML = html;
     return;
   }
 
@@ -387,7 +448,7 @@ function render(status) {
   }
   if (subscription.length) {
     html += '<div class="muted" style="margin:0 0 6px 2px">Windows enforced (<span class="mono">windowLimits.limited = true</span>) — subscription plans, throttled by rolling 5h/weekly credit-value limits</div>';
-    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Spend', 'Health'], false);
+    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Health'], false);
   }
   if (payAsYouGo.length) {
     html += '<div class="muted" style="margin:12px 0 6px 2px">Windows not enforced (<span class="mono">windowLimits.limited = false</span>) — pay-as-you-go, limited by the prepaid credit balance</div>';
@@ -396,8 +457,10 @@ function render(status) {
   html += '<div class="muted" style="margin-top:8px">Hover any cell for the full reading. '
     + 'CommandCode limits are credit/USD-equivalent, not request quotas, so every column is amount-based; '
     + 'request counts appear only as tooltip diagnostics.</div>';
-  document.getElementById('content').innerHTML = html;
+  contentEl.innerHTML = html;
 }
+
+/* ---- data ---- */
 
 async function fetchJSON(url, options) {
   var resp = await fetch(url, options || {});
@@ -410,7 +473,7 @@ async function load() {
   err.textContent = '';
   var key = keyInput.value.trim();
   if (!key) {
-    err.textContent = 'management key required — paste it once, it is remembered on this browser';
+    err.textContent = 'management key required — paste it once, it is loaded automatically afterwards';
     keyInput.focus();
     return;
   }
@@ -437,7 +500,6 @@ function showError(e) { document.getElementById('error').textContent = String(e)
 function runLoad() { load().catch(function (e) { showError(e); }); }
 
 document.getElementById('load').addEventListener('click', runLoad);
-document.getElementById('forget').addEventListener('click', forgetKey);
 document.getElementById('refresh').addEventListener('click', async function () {
   try {
     await fetchJSON(MGMT + '/refresh', { method: 'POST', headers: authHeaders(), body: '{}' });
@@ -453,6 +515,21 @@ document.getElementById('togglePlans').addEventListener('click', async function 
     el.hidden = true;
   }
 });
+
+// Tooltip wiring: delegated so table re-renders need no re-binding.
+contentEl.addEventListener('mouseover', function (e) {
+  var target = e.target;
+  var cellEl = target && target.closest ? target.closest('td[data-tip-idx]') : null;
+  if (cellEl) showTipFor(cellEl, e); else hideTip();
+});
+contentEl.addEventListener('mousemove', function (e) {
+  if (state.tipVisible) placeTip(e.clientX, e.clientY);
+});
+contentEl.addEventListener('mouseout', function (e) {
+  var target = e.target;
+  if (target && target.closest && target.closest('td[data-tip-idx]')) hideTip();
+});
+window.addEventListener('scroll', hideTip, true);
 
 // No interaction required: loading starts as soon as a key is available, and a
 // key that is typed or pasted in triggers a load by itself.
@@ -480,11 +557,10 @@ if (stored) {
   keyInput.value = stored.key;
   document.getElementById('keySource').textContent = 'key loaded automatically from ' + stored.source;
   document.getElementById('refresh').hidden = false;
-  document.getElementById('forget').hidden = false;
   runLoad();
 } else {
   keyInput.focus();
-  document.getElementById('content').innerHTML =
+  contentEl.innerHTML =
     'Paste the CPA management key once — it is remembered on this browser and the pool loads automatically from then on.';
 }
 </script>
