@@ -147,7 +147,9 @@ Each enabled key is polled in the order the CommandCode CLI uses:
 3. `GET /alpha/billing/credits` — remaining monthly credits, prepaid/free
    credits, and both rolling windows.
 4. `GET /alpha/usage/summary?since=<billing period start>` — billing-period
-   aggregates (skipped when `include-usage-summary: false`).
+   aggregates (skipped when `include-usage-summary: false`). Note that the API
+   buckets this endpoint by UTC day, so the effective range starts at UTC
+   midnight of the requested date.
 
 Open the plugin page at:
 
@@ -214,7 +216,13 @@ Abbreviated `status` response:
         "5h": {"name": "5h", "used": 0.115138, "cap": 14, "headroom": 13.884862, "used_percent": 0.82, "blocked": false, "blocked_effective": false, "reset_at": "2026-09-10T15:54:59Z", "resets_in": "1h 35m"},
         "weekly": {"name": "weekly", "used": 0.401069, "cap": 35, "headroom": 34.598931, "used_percent": 1.15, "blocked": false, "blocked_effective": false, "reset_at": "2026-10-07T07:20:33Z", "resets_in": "26d 17h"}
       },
-      "period_summary": {"requests": 6104, "success_rate": 100, "tokens_total": 817460082, "total_cost": 22.051453, "period_basis": "billing-period"}
+      "period_summary": {
+        "since": "2026-08-26T08:59:51.000Z",
+        "since_effective": "2026-08-26T00:00:00Z",
+        "granularity": "utc-day",
+        "period_basis": "billing-period",
+        "requests": 6104, "success_rate": 100, "tokens_total": 817460082, "total_cost": 22.051453
+      }
     }
   ]
 }
@@ -237,8 +245,17 @@ The CommandCode usage API has a few traps that this plugin handles explicitly:
   prepaid balance remains.
 - Multiple API keys can share one `subscriptions.data.id`; they consume one
   credit pool. Such accounts are listed under `shared_subscriptions`.
+- `/alpha/usage/summary` buckets by **UTC day**: `since` is floored to UTC
+  midnight, a future day returns zeros (a future time within today returns
+  today's data), and a date before the first request returns all available data
+  — it is *not* clamped to the billing period. The plugin therefore reports the
+  requested `since`, the effective `since_effective`, and
+  `granularity: "utc-day"`.
+- `periodBasis` is always the literal `billing-period` regardless of the range
+  actually returned, so it is not a reliable indicator of coverage.
 - `/alpha/usage/summary` totals do not reconcile exactly with the balance-derived
-  consumption; the plugin reports both without inventing a correction.
+  consumption (live check: `$0.4371` vs `$0.4537`); the plugin reports both
+  without inventing a correction.
 - There is no per-request history via API key. Per-request rows exist only in
   the CommandCode Studio web app, which uses session-cookie auth.
 

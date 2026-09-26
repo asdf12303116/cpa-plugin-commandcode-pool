@@ -14,11 +14,19 @@ import (
 // CommandCode exposes its usage data through undocumented but CLI-stable routes
 // under /alpha/*. They authenticate with the same provider API key as
 // inference, via either `Authorization: Bearer <key>` or `x-api-key: <key>`.
+//
+// /alpha/usage/summary floors its `since` parameter to a UTC day: every
+// timestamp within one UTC day returns that day's full aggregate, future days
+// return zeros, and dates before the first request return all available data.
+// The summary therefore never covers an exact instant-to-instant range.
 const (
 	pathWhoami        = "/alpha/whoami"
 	pathSubscriptions = "/alpha/billing/subscriptions"
 	pathCredits       = "/alpha/billing/credits"
 	pathUsageSummary  = "/alpha/usage/summary"
+
+	// summaryGranularity names the effective bucketing of usage/summary.
+	summaryGranularity = "utc-day"
 )
 
 // httpDoer executes a host-style HTTP request. It defaults to the CPA host
@@ -293,4 +301,15 @@ func epochMillisToTime(ms int64) time.Time {
 		return time.Time{}
 	}
 	return time.UnixMilli(ms).UTC()
+}
+
+// utcDayStart returns the UTC midnight that /alpha/usage/summary actually uses
+// as the lower bound for a given `since` value.
+func utcDayStart(raw string) string {
+	parsed := parseTime(raw)
+	if parsed.IsZero() {
+		return ""
+	}
+	utc := parsed.UTC()
+	return time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
 }

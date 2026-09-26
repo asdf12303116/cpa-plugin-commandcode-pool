@@ -312,6 +312,40 @@ func managementCall(t *testing.T, method, path string, body []byte) (pluginapi.M
 	return resp, resp.StatusCode
 }
 
+func TestBuildSummaryStatusReportsEffectiveDayStart(t *testing.T) {
+	got := buildSummaryStatus(&usageSummary{TotalCount: 369, TotalCost: 0.437121, PeriodBasis: "billing-period"}, "2026-09-26T08:59:51.000Z")
+	if got == nil {
+		t.Fatal("summary status must not be nil")
+	}
+	if got.Since != "2026-09-26T08:59:51.000Z" {
+		t.Errorf("since = %q", got.Since)
+	}
+	// Live-verified: /alpha/usage/summary floors since to a UTC day, so a
+	// timestamp within a day returns that whole day's aggregate.
+	if got.SinceEffective != "2026-09-26T00:00:00Z" {
+		t.Errorf("since_effective = %q, want 2026-09-26T00:00:00Z", got.SinceEffective)
+	}
+	if got.Granularity != "utc-day" {
+		t.Errorf("granularity = %q", got.Granularity)
+	}
+}
+
+func TestUTCDayStart(t *testing.T) {
+	cases := map[string]string{
+		"2026-09-26T08:59:51.000Z":  "2026-09-26T00:00:00Z",
+		"2026-09-26T23:59:59Z":      "2026-09-26T00:00:00Z",
+		"2026-09-25T00:00:00Z":      "2026-09-25T00:00:00Z",
+		"2026-09-26T08:59:51+08:00": "2026-09-26T00:00:00Z",
+		"":                          "",
+		"bogus":                     "",
+	}
+	for raw, want := range cases {
+		if got := utcDayStart(raw); got != want {
+			t.Errorf("utcDayStart(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestHandleManagementRoutes(t *testing.T) {
 	cfg := decodeSettings(nil)
 	acct := testAccount("cc-1", "AAAAAA")

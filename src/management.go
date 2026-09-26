@@ -140,7 +140,13 @@ type windowStatus struct {
 }
 
 type summaryStatus struct {
-	Since                 string  `json:"since,omitempty"`
+	// Since is the requested range start (the billing period start).
+	Since string `json:"since,omitempty"`
+	// SinceEffective is the UTC midnight the API actually applies, because
+	// /alpha/usage/summary buckets by UTC day.
+	SinceEffective string `json:"since_effective,omitempty"`
+	// Granularity names the effective bucketing ("utc-day").
+	Granularity           string  `json:"granularity,omitempty"`
 	PeriodBasis           string  `json:"period_basis,omitempty"`
 	Requests              int64   `json:"requests"`
 	Completed             int64   `json:"completed"`
@@ -393,6 +399,8 @@ func buildSummaryStatus(sum *usageSummary, since string) *summaryStatus {
 	}
 	return &summaryStatus{
 		Since:                 strings.TrimSpace(since),
+		SinceEffective:        utcDayStart(since),
+		Granularity:           summaryGranularity,
 		PeriodBasis:           sum.PeriodBasis,
 		Requests:              sum.TotalCount,
 		Completed:             sum.CompletedCount,

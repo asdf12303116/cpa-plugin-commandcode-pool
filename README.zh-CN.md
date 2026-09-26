@@ -133,7 +133,8 @@ plugins:
 2. `GET /alpha/billing/subscriptions` —— `planId`、状态、计费周期、订阅 ID。
 3. `GET /alpha/billing/credits` —— 剩余月度额度、预付/赠送额度、两个滚动窗口。
 4. `GET /alpha/usage/summary?since=<计费周期开始>` —— 计费周期汇总
-   （`include-usage-summary: false` 时跳过）。
+   （`include-usage-summary: false` 时跳过）。注意该接口按 UTC 天分桶，因此真实生效的
+   范围从所请求日期的 UTC 零点开始。
 
 面板页面地址：
 
@@ -199,7 +200,13 @@ plugins:
         "5h": {"name": "5h", "used": 0.115138, "cap": 14, "headroom": 13.884862, "used_percent": 0.82, "blocked": false, "blocked_effective": false, "reset_at": "2026-09-10T15:54:59Z", "resets_in": "1h 35m"},
         "weekly": {"name": "weekly", "used": 0.401069, "cap": 35, "headroom": 34.598931, "used_percent": 1.15, "blocked": false, "blocked_effective": false, "reset_at": "2026-10-07T07:20:33Z", "resets_in": "26d 17h"}
       },
-      "period_summary": {"requests": 6104, "success_rate": 100, "tokens_total": 817460082, "total_cost": 22.051453, "period_basis": "billing-period"}
+      "period_summary": {
+        "since": "2026-08-26T08:59:51.000Z",
+        "since_effective": "2026-08-26T00:00:00Z",
+        "granularity": "utc-day",
+        "period_basis": "billing-period",
+        "requests": 6104, "success_rate": 100, "tokens_total": 817460082, "total_cost": 22.051453
+      }
     }
   ]
 }
@@ -219,8 +226,13 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
   `blocked: true` 但 `blocked_effective: false`（仍有预付余额）。
 - 多个 API Key 可能共享同一个 `subscriptions.data.id`，也就共享一个额度池，这类账号
   会列在 `shared_subscriptions` 中。
-- `/alpha/usage/summary` 的汇总值与余额推导出的消耗量并不完全对得上；插件两者都展示，
-  不做臆测修正。
+- `/alpha/usage/summary` 按 **UTC 天**分桶：`since` 会被向下取整到 UTC 零点；未来的
+  “某一天”返回 0（但今天之内的未来时刻返回今天的数据）；早于首个请求的日期返回全部可用
+  数据，**不会**被 clamp 到计费周期。因此插件同时给出请求值 `since`、实际生效的
+  `since_effective` 与 `granularity: "utc-day"`。
+- `periodBasis` 恒为字面量 `billing-period`，与真实返回范围无关，不能作为覆盖范围的依据。
+- `/alpha/usage/summary` 的汇总与余额推导出的消耗并不完全一致（实测 `$0.4371` vs
+  `$0.4537`）；插件两者都展示，不做臆测修正。
 - 通过 API Key 无法获取逐请求明细；逐请求数据只存在于使用 session cookie 认证的
   CommandCode Studio 网页端。
 
