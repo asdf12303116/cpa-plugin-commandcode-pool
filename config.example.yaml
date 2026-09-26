@@ -1,0 +1,56 @@
+# Relevant excerpts for CLIProxyAPI's config.yaml.
+#
+# The plugin only reads CommandCode API keys from this file; it never writes to
+# it. Every key found under a CommandCode base URL (openai-compatibility or
+# claude-api-key) is polled through CommandCode's /alpha/* usage API.
+#
+# The same key works for both protocols, so listing it twice only means one
+# logical account in the dashboard.
+
+openai-compatibility:
+  - name: commandcode
+    base-url: https://api.commandcode.ai/provider/v1
+    api-key-entries:
+      - api-key: YOUR_COMMANDCODE_API_KEY_1
+      - api-key: YOUR_COMMANDCODE_API_KEY_2
+
+claude-api-key:
+  - api-key: YOUR_COMMANDCODE_API_KEY_1
+    base-url: https://api.commandcode.ai
+  - api-key: YOUR_COMMANDCODE_API_KEY_2
+    base-url: https://api.commandcode.ai
+
+plugins:
+  enabled: true
+  # Add this source to install and update the plugin from CPA Manager Plus.
+  store-sources:
+    - https://raw.githubusercontent.com/asdf12303116/cpa-plugin-commandcode-pool/main/registry.json
+  configs:
+    commandcode-pool:
+      enabled: true
+      # Path of the CPA config file the plugin reads to discover API keys.
+      cpa-config-path: config.yaml
+      # CommandCode API origin (override for staging/local testing).
+      api-base-url: https://api.commandcode.ai
+      # How often every key is polled through /alpha/*.
+      usage-refresh-interval: 3m
+      # Readings older than this are flagged stale in the dashboard/API.
+      usage-stale-after: 20m
+      # Call /alpha/usage/summary (billing-period aggregates) on every cycle.
+      include-usage-summary: true
+      # Dashboard colour thresholds, in percent of a window cap.
+      warn-percent: 80
+      critical-percent: 95
+      # CommandCode sits behind Cloudflare; the default Go HTTP user agent can
+      # be rejected with "error code 1010". Override only if you know better.
+      # user-agent: curl/8.7.1
+      # Substrings that identify a CommandCode base URL during discovery.
+      # base-url-match:
+      #   - commandcode.ai
+
+      # Optional per-account overrides, matched by API-key suffix.
+      # accounts:
+      #   - key-suffix: KEY_1
+      #     name: primary
+      #   - key-suffix: KEY_2
+      #     disabled: true

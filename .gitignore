@@ -1,0 +1,18 @@
+# Build outputs
+/dist/
+*.so
+*.h
+
+# Local plugin state and secrets
+settings.json
+*.cookie
+*.secret
+.env
+
+# Local-only API capture notes (contain PII and internal account ids)
+commandcode-usage-api.llm.md
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
