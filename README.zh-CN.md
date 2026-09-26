@@ -244,8 +244,9 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 
 - **没有发现任何账号：** 确认 `cpa-config-path` 指向 CPA 实际加载的配置，且凭据
   `base-url` 含 `commandcode.ai`。读取/解析失败会体现在状态响应的 `config_error`。
-- **HTTP 403 `error code 1010`：** Cloudflare 拒绝了 User-Agent。保留或调整
-  `user-agent`（`curl/8.7.1` 可正常通过）。
+- **HTTP 403 `error code 1010`：** Cloudflare 拒绝了 User-Agent。`user-agent` 默认
+  为 curl 风格，是因为最初抓取时 Go 默认 UA 被拦截；目前边缘节点也已放行 Go 默认
+  UA，因此该覆盖是防御性的而非必需。
 - **HTTP 400 `Invalid UUID at "orgId"`：** 插件只在 `whoami` 返回组织时才发送
   `orgId`，出现该错误说明 API 侧行为有变。
 - **`stale: true`：** 权威的 `credits` 读数已超过 `usage-stale-after`；查看各接口的
@@ -260,6 +261,13 @@ make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
 make package VERSION=0.1.0
 make clean
+```
+
+`TestLiveCommandCodeAPI` 会用插件生产路径上同一套 client、解析与推导代码，真实调用
+`/alpha/*`。未提供 key 时会跳过，因此 CI 始终离线运行：
+
+```sh
+COMMANDCODE_LIVE_KEY=user_... go test ./src -run TestLiveCommandCodeAPI -v
 ```
 
 CI 还会检查格式，并为 amd64 与 arm64 编译 C ABI 动态库。推送 `v<version>` tag 会将

@@ -21,15 +21,28 @@ const (
 	pathUsageSummary  = "/alpha/usage/summary"
 )
 
+// httpDoer executes a host-style HTTP request. It defaults to the CPA host
+// callback and is replaceable so the client can be exercised outside CPA.
+type httpDoer func(pluginapi.HTTPRequest) (pluginapi.HTTPResponse, error)
+
 type apiClient struct {
 	baseURL   string
 	userAgent string
+	do        httpDoer
 }
 
 func newAPIClient(cfg settings) *apiClient {
+	return newAPIClientWithDoer(cfg, hostHTTPDo)
+}
+
+func newAPIClientWithDoer(cfg settings, do httpDoer) *apiClient {
+	if do == nil {
+		do = hostHTTPDo
+	}
 	return &apiClient{
 		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.APIBaseURL), "/"),
 		userAgent: cfg.UserAgent,
+		do:        do,
 	}
 }
 
@@ -58,7 +71,7 @@ func (c *apiClient) get(apiKey, path string, query url.Values) ([]byte, error) {
 	if len(query) > 0 {
 		target += "?" + query.Encode()
 	}
-	resp, errDo := hostHTTPDo(pluginapi.HTTPRequest{
+	resp, errDo := c.do(pluginapi.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    target,
 		Headers: http.Header{

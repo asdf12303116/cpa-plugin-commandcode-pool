@@ -265,7 +265,9 @@ shown with raw API values only (`"known": false`).
   actually loaded, and that the credential base URL contains `commandcode.ai`.
   `config_error` in the status response reports read/parse failures.
 - **HTTP 403 with `error code 1010`:** Cloudflare rejected the request user
-  agent. Keep or adjust `user-agent` (`curl/8.7.1` is accepted).
+  agent. `user-agent` defaults to a curl-like value because the Go default was
+  rejected during the original capture; current edges have also accepted the Go
+  default, so the override is defensive rather than mandatory.
 - **HTTP 400 `Invalid UUID at "orgId"`:** the plugin only sends `orgId` when
   `whoami` reported an organization, so this indicates an API-side change.
 - **`stale: true`:** the authoritative `credits` reading is older than
@@ -280,6 +282,14 @@ make test     # gofmt check is in CI; runs go vet + go test
 make build
 make package VERSION=0.1.0
 make clean
+```
+
+`TestLiveCommandCodeAPI` drives the real `/alpha/*` API through the same client,
+parsing, and derivation code the plugin uses in production. It is skipped unless
+a key is supplied, so CI stays offline:
+
+```sh
+COMMANDCODE_LIVE_KEY=user_... go test ./src -run TestLiveCommandCodeAPI -v
 ```
 
 CI additionally checks formatting and builds the C ABI shared library for amd64
