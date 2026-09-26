@@ -2,19 +2,26 @@ package main
 
 // statusPageHTML is the plugin resource page.
 //
-// The page renders one compact table row per account and exposes the full
-// reading through a styled hover tooltip. It loads by itself on open: the
-// management key is taken from CPA Manager Plus' persisted auth store, from this
-// page's own remembered value, or from the current tab, and a key typed or
-// pasted into the field triggers the load automatically, so the Load button is
-// only a fallback.
+// The page renders one compact table row per account; clicking a row expands an
+// inline detail panel with the full reading, so no hover interaction is needed.
+// It loads by itself on open: the management key is taken from CPA Manager Plus'
+// persisted auth store, from this page's own remembered value, or from the
+// current tab, and a key typed or pasted into the field triggers the load
+// automatically, so the Load button is only a fallback.
+//
+// Styling follows CPA Manager Plus (seakee/CPA-Manager-Plus): cpamp embeds
+// plugin resource pages in an iframe and injects the host design tokens into it
+// (html[data-cpamp-plugin-host] + data-theme + every host custom property), so
+// this page never defines host token names itself. It only reads them through
+// --ccp-* with cpamp's own light palette as the fallback, which keeps it
+// identical to cpamp when hosted and usable standalone.
 //
 // CommandCode throttles on credit/USD-equivalent value rather than request
 // quotas, so every column is amount-based. Columns also depend on
 // windowLimits.limited, the API's own plan/non-plan discriminator: subscription
 // plans are limited by the rolling 5h/weekly windows and do not need credit or
 // spend columns, while pay-as-you-go (Provider) accounts have no windows and are
-// limited by their prepaid balance. Request counts only appear as diagnostics.
+// limited by their prepaid balance.
 const statusPageHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -22,49 +29,240 @@ const statusPageHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CommandCode Pool</title>
 <style>
-:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
-body { margin: 0; padding: 20px; background: Canvas; color: CanvasText; font-size: 14px; }
-h1 { font-size: 19px; margin: 0 0 4px; }
-h2 { font-size: 15px; margin: 0 0 10px; }
-.card { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: 10px; padding: 12px 14px; margin-bottom: 14px; }
-.row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-input[type=password] { padding: 5px 9px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); min-width: 220px; background: transparent; color: inherit; }
-button { padding: 5px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, CanvasText 25%, transparent); background: transparent; color: inherit; cursor: pointer; }
-button:hover { background: color-mix(in srgb, CanvasText 8%, transparent); }
-table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
-table.grid th, table.grid td { text-align: left; padding: 7px 10px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); vertical-align: middle; white-space: nowrap; }
-table.grid th { font-weight: 600; opacity: .75; font-size: 12px; }
-table.grid tr:hover td { background: color-mix(in srgb, CanvasText 5%, transparent); }
-.bar { display: inline-block; width: 58px; height: 7px; border-radius: 4px; background: color-mix(in srgb, CanvasText 12%, transparent); overflow: hidden; vertical-align: middle; margin-right: 6px; }
-.bar > i { display: block; height: 100%; background: #16a34a; }
-.bar > i.warn { background: #d97706; } .bar > i.bad { background: #dc2626; }
-.ok { color: #16a34a; } .bad { color: #dc2626; } .warn { color: #d97706; }
-.muted { opacity: .65; font-size: 12px; }
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.badge { display: inline-block; padding: 0 6px; border-radius: 999px; font-size: 11px; border: 1px solid currentColor; }
-#error { color: #dc2626; margin: 8px 0; min-height: 16px; font-size: 13px; }
-td[data-tip-idx] { cursor: help; }
+/* ---------------------------------------------------------------------------
+   cpamp design tokens, consumed with cpamp's light palette as the fallback.
+   --------------------------------------------------------------------------- */
+:root {
+  --ccp-font: var(--cpamp-plugin-font-family, Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  --ccp-mono: var(--font-family-mono, var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace));
+  --ccp-bg: var(--bg-primary, #ffffff);
+  --ccp-page-bg: var(--app-bg, #eff2f7);
+  --ccp-muted: var(--bg-tertiary, #f6faff);
+  --ccp-border: var(--border-color, rgba(15, 23, 42, 0.08));
+  --ccp-border-strong: var(--app-border-strong, rgba(15, 23, 42, 0.12));
+  --ccp-text: var(--text-primary, #2c3e50);
+  --ccp-text-2: var(--text-secondary, #5f6c7b);
+  --ccp-text-3: var(--text-tertiary, #8b95a6);
+  --ccp-hover: var(--bg-hover, rgba(59, 130, 246, 0.08));
+  --ccp-primary: var(--primary-color, #409eff);
+  --ccp-primary-hover: var(--primary-hover, #79bbff);
+  --ccp-radius-sm: var(--app-radius-sm, 8px);
+  --ccp-radius-md: var(--app-radius-md, 12px);
+  --ccp-shadow: var(--shadow-lg, none);
+  --ccp-track: var(--data-track-bg, rgba(95, 108, 123, 0.16));
+  --ccp-green: var(--data-green-base, #22c55e);
+  --ccp-amber: var(--data-amber-base, #f59e0b);
+  --ccp-red: var(--data-red-base, #ef4444);
+  --ccp-badge-ok-bg: var(--data-badge-success-bg, #f0fdf4);
+  --ccp-badge-ok-border: var(--data-badge-success-border, #bbf7d0);
+  --ccp-badge-ok-text: var(--data-badge-success-text, #15803d);
+  --ccp-badge-warn-bg: var(--data-badge-warning-bg, #fffbeb);
+  --ccp-badge-warn-border: var(--data-badge-warning-border, #fde68a);
+  --ccp-badge-warn-text: var(--data-badge-warning-text, #b45309);
+  --ccp-badge-bad-bg: var(--data-badge-danger-bg, #fef2f2);
+  --ccp-badge-bad-border: var(--data-badge-danger-border, #fecaca);
+  --ccp-badge-bad-text: var(--data-badge-danger-text, #b91c1c);
+  --ccp-badge-info-bg: var(--data-badge-info-bg, #eff6ff);
+  --ccp-badge-info-border: var(--data-badge-info-border, #bfdbfe);
+  --ccp-badge-info-text: var(--data-badge-info-text, #1d4ed8);
+  --ccp-badge-muted-bg: var(--data-badge-neutral-bg, #f8fafc);
+  --ccp-badge-muted-border: var(--data-badge-neutral-border, #cbd5e1);
+  --ccp-badge-muted-text: var(--data-badge-neutral-text, #475569);
+}
 
-/* Hover tooltip, styled to match the cards instead of the browser default. */
-#tip { position: fixed; z-index: 40; max-width: 380px; padding: 9px 11px; border-radius: 10px;
-  border: 1px solid color-mix(in srgb, CanvasText 22%, transparent);
-  background: color-mix(in srgb, Canvas 93%, CanvasText 7%);
-  box-shadow: 0 10px 28px color-mix(in srgb, CanvasText 20%, transparent);
-  font-size: 12px; line-height: 1.55; pointer-events: none; }
-#tip .tip-head { font-weight: 600; margin-bottom: 5px; }
-#tip .tip-body { white-space: pre-line; opacity: .9;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* Standalone dark palette (cpamp's dark values); skipped while cpamp hosts us
+   because it already injected the real theme variables. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-cpamp-plugin-host]) {
+    --ccp-bg: rgba(24, 28, 40, 0.9);
+    --ccp-page-bg: #0a0a0a;
+    --ccp-muted: rgba(255, 255, 255, 0.06);
+    --ccp-border: rgba(255, 255, 255, 0.08);
+    --ccp-border-strong: rgba(255, 255, 255, 0.12);
+    --ccp-text: #e5e5e5;
+    --ccp-text-2: #a3a3a3;
+    --ccp-text-3: #7a7a7a;
+    --ccp-hover: rgba(96, 165, 250, 0.18);
+    --ccp-track: rgba(255, 255, 255, 0.08);
+    --ccp-badge-ok-bg: rgba(74, 222, 128, 0.14);
+    --ccp-badge-ok-border: rgba(74, 222, 128, 0.24);
+    --ccp-badge-ok-text: #4ade80;
+    --ccp-badge-warn-bg: rgba(251, 191, 36, 0.14);
+    --ccp-badge-warn-border: rgba(251, 191, 36, 0.24);
+    --ccp-badge-warn-text: #fbbf24;
+    --ccp-badge-bad-bg: rgba(248, 113, 113, 0.14);
+    --ccp-badge-bad-border: rgba(248, 113, 113, 0.24);
+    --ccp-badge-bad-text: #f87171;
+    --ccp-badge-info-bg: rgba(96, 165, 250, 0.14);
+    --ccp-badge-info-border: rgba(96, 165, 250, 0.24);
+    --ccp-badge-info-text: #60a5fa;
+    --ccp-badge-muted-bg: rgba(148, 163, 184, 0.1);
+    --ccp-badge-muted-border: rgba(148, 163, 184, 0.24);
+    --ccp-badge-muted-text: #94a3b8;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px 18px 24px;
+  background: var(--ccp-page-bg);
+  color: var(--ccp-text);
+  font-family: var(--ccp-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+h2 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+
+.card {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--ccp-border);
+  border-radius: var(--ccp-radius-md);
+  background: var(--ccp-bg);
+  box-shadow: var(--ccp-shadow);
+}
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+label { color: var(--ccp-text-2); font-size: 12px; }
+input[type=password] {
+  min-height: 34px;
+  margin-left: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--ccp-border);
+  border-radius: var(--ccp-radius-sm);
+  background: var(--ccp-muted);
+  color: var(--ccp-text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+}
+input[type=password]:focus { border-color: var(--ccp-primary); }
+
+button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--ccp-border);
+  border-radius: var(--ccp-radius-md);
+  background: var(--ccp-muted);
+  color: var(--ccp-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+button:hover:not(:disabled) { border-color: var(--ccp-primary); background: var(--ccp-hover); color: var(--ccp-primary); }
+button.primary { border-color: var(--ccp-primary); background: var(--ccp-primary); color: #ffffff; }
+button.primary:hover { border-color: var(--ccp-primary-hover); background: var(--ccp-primary-hover); color: #ffffff; }
+
+table.grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.grid th {
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--ccp-muted) 72%, var(--ccp-bg));
+  color: var(--ccp-text-2);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+table.grid td {
+  padding: 8px 10px;
+  border-top: 1px solid var(--ccp-border);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+tr.acct { cursor: pointer; }
+tr.acct:hover td { background: var(--ccp-hover); }
+tr.acct:focus-visible { outline: 2px solid var(--ccp-primary); outline-offset: -2px; }
+.caret {
+  display: inline-block;
+  width: 11px;
+  margin-right: 6px;
+  color: var(--ccp-text-3);
+  transition: transform 0.15s ease;
+}
+tr.acct.open .caret { transform: rotate(90deg); }
+
+tr.detail > td {
+  padding: 0;
+  border-top: 0;
+  background: color-mix(in srgb, var(--ccp-muted) 62%, var(--ccp-bg));
+  white-space: normal;
+}
+.detail-body { padding: 12px 12px 14px 27px; }
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px 20px;
+}
+.detail-section { min-width: 0; }
+.detail-title { margin-bottom: 6px; color: var(--ccp-text-2); font-size: 12px; font-weight: 600; }
+.kv { display: flex; justify-content: space-between; gap: 14px; padding: 2px 0; font-size: 12px; }
+.kv > span:first-child { flex: 0 0 auto; color: var(--ccp-text-3); }
+.kv > span:last-child { min-width: 0; color: var(--ccp-text); text-align: right; overflow-wrap: anywhere; }
+
+.muted { color: var(--ccp-text-3); font-size: 12px; }
+.mono { font-family: var(--ccp-mono); font-variant-numeric: tabular-nums; }
+.ok { color: var(--ccp-green); }
+.warn { color: var(--ccp-amber); }
+.bad { color: var(--ccp-red); }
+.section-label { margin: 14px 0 6px; color: var(--ccp-text-3); font-size: 12px; }
+.section-label:first-child { margin-top: 0; }
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.badge.ok { background: var(--ccp-badge-ok-bg); border-color: var(--ccp-badge-ok-border); color: var(--ccp-badge-ok-text); }
+.badge.warn { background: var(--ccp-badge-warn-bg); border-color: var(--ccp-badge-warn-border); color: var(--ccp-badge-warn-text); }
+.badge.bad { background: var(--ccp-badge-bad-bg); border-color: var(--ccp-badge-bad-border); color: var(--ccp-badge-bad-text); }
+.badge.info { background: var(--ccp-badge-info-bg); border-color: var(--ccp-badge-info-border); color: var(--ccp-badge-info-text); }
+.badge.muted { background: var(--ccp-badge-muted-bg); border-color: var(--ccp-badge-muted-border); color: var(--ccp-badge-muted-text); }
+
+.bar {
+  display: inline-block;
+  width: 56px;
+  height: 8px;
+  margin-right: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ccp-track);
+  vertical-align: middle;
+}
+.bar > i { display: block; height: 100%; background: var(--ccp-green); transition: width 0.2s ease; }
+.bar > i.warn { background: var(--ccp-amber); }
+.bar > i.bad { background: var(--ccp-red); }
+
+#error { margin-top: 8px; color: var(--ccp-red); font-size: 12px; min-height: 16px; }
 </style>
 </head>
 <body>
-<h1>CommandCode Pool</h1>
-<div class="muted" id="meta"></div>
+<div class="head">
+  <h1>CommandCode Pool</h1>
+  <div class="muted" id="meta"></div>
+</div>
 <div class="card">
   <div class="row">
-    <label class="muted">Management key
+    <label>Management key
       <input type="password" id="key" placeholder="loaded automatically when available" autocomplete="off">
     </label>
-    <button id="load">Reload</button>
+    <button id="load" class="primary">Reload</button>
     <button id="refresh" hidden>Refresh all</button>
     <button id="togglePlans">Plan catalog</button>
     <span class="muted" id="keySource"></span>
@@ -73,17 +271,12 @@ td[data-tip-idx] { cursor: help; }
 </div>
 <div id="plans" hidden></div>
 <div id="content" class="muted">Loading…</div>
-<div id="tip" hidden></div>
 <script>
 var MGMT = '/v0/management/plugins/commandcode-pool';
 var STORE_KEY = 'ccp-key';
 var keyInput = document.getElementById('key');
 var contentEl = document.getElementById('content');
-var tipEl = document.getElementById('tip');
-var state = { warn: 80, critical: 95, tipVisible: false };
-// Sorted tips for the current table; cells reference them by index so tip text
-// never has to survive HTML attribute escaping.
-var TIPS = [];
+var state = { warn: 80, critical: 95 };
 
 function authHeaders() {
   var value = keyInput.value.trim();
@@ -135,50 +328,6 @@ function rememberKey(key) {
   try { sessionStorage.setItem(STORE_KEY, key); } catch (e) {}
 }
 
-/* ---- hover tooltip ---- */
-
-// tipParts splits "header\nbody" so the header can be styled separately.
-function tipParts(text) {
-  var idx = text.indexOf('\n');
-  if (idx === -1) return { head: '', body: text };
-  return { head: text.slice(0, idx), body: text.slice(idx + 1) };
-}
-function placeTip(x, y) {
-  var margin = 12, offset = 14;
-  var rect = tipEl.getBoundingClientRect();
-  var left = x + offset;
-  var top = y + offset;
-  if (left + rect.width + margin > window.innerWidth) left = Math.max(margin, x - rect.width - offset);
-  if (top + rect.height + margin > window.innerHeight) top = Math.max(margin, y - rect.height - offset);
-  tipEl.style.left = left + 'px';
-  tipEl.style.top = top + 'px';
-}
-function showTipFor(cellEl, ev) {
-  var idx = cellEl.getAttribute('data-tip-idx');
-  var raw = idx === null ? '' : TIPS[Number(idx)];
-  if (!raw) { hideTip(); return; }
-  var parts = tipParts(raw);
-  tipEl.textContent = '';
-  if (parts.head) {
-    var head = document.createElement('div');
-    head.className = 'tip-head';
-    head.textContent = parts.head;
-    tipEl.appendChild(head);
-  }
-  var body = document.createElement('div');
-  body.className = 'tip-body';
-  body.textContent = parts.body;
-  tipEl.appendChild(body);
-  tipEl.hidden = false;
-  state.tipVisible = true;
-  placeTip(ev.clientX, ev.clientY);
-}
-function hideTip() {
-  if (!state.tipVisible) return;
-  tipEl.hidden = true;
-  state.tipVisible = false;
-}
-
 /* ---- formatting ---- */
 
 function esc(s) {
@@ -206,15 +355,9 @@ function bar(percent) {
   var p = (percent === undefined || percent === null) ? 0 : Math.max(0, Math.min(100, percent));
   return '<span class="bar"><i class="' + pctClass(percent) + '" style="width:' + p + '%"></i></span>';
 }
-function cell(inner, tip, cls) {
-  var attrs = cls ? ' class="' + cls + '"' : '';
-  if (tip) {
-    TIPS.push(tip);
-    attrs += ' data-tip-idx="' + (TIPS.length - 1) + '"';
-  }
-  return '<td' + attrs + '>' + inner + '</td>';
+function joinList(values) {
+  return values.filter(function (v) { return v !== '' && v !== undefined && v !== null; });
 }
-function join(lines) { return lines.filter(function (l) { return l !== '' && l !== undefined && l !== null; }).join('\n'); }
 function statusBadge(status) {
   if (!status) return '';
   return ' <span class="badge ' + (status === 'active' ? 'ok' : 'bad') + '">' + esc(status) + '</span>';
@@ -227,7 +370,7 @@ function statusBadge(status) {
 // credit-value windows, while pay-as-you-go (Provider) accounts do not and are
 // limited by a prepaid balance instead. A null result means the credits
 // endpoint has not reported the flag yet; the planId is then used as a fallback
-// and the tooltip says so, so a guess is never presented as fact.
+// and the detail panel says so, so a guess is never presented as fact.
 function windowsEnforced(a) {
   var bal = a.balance || {};
   if (bal.limited === true) return true;
@@ -245,7 +388,7 @@ function enforcedLabel(a) {
   return 'unknown — no credits reading yet, inferred from planId';
 }
 
-/* ---- cells ---- */
+/* ---- cell builders: compact text plus the detail-panel entries ---- */
 
 function accountCell(a) {
   var plan = a.plan || {};
@@ -253,22 +396,27 @@ function accountCell(a) {
   var badges = '';
   if (a.disabled) badges += ' <span class="badge muted">disabled</span>';
   if (a.stale) badges += ' <span class="badge warn">stale</span>';
-  if (plan.shared_keys > 1) badges += ' <span class="badge warn">shared pool</span>';
-  var text = '<b>' + esc(a.name) + '</b>' + badges
-    + (a.key_suffix ? '<br><span class="muted">…' + esc(a.key_suffix) + '</span>' : '');
-  var tip = join([
-    'providers: ' + ((a.providers && a.providers.length) ? a.providers.join(', ') : '-'),
-    'user: ' + ([id.user_name, id.name].filter(Boolean).join(' / ') || '-'),
-    id.email ? 'email: ' + id.email : '',
-    id.org_id ? 'org: ' + id.org_id : '',
-    'windows enforced: ' + enforcedLabel(a),
-    'disabled: ' + (a.disabled ? 'yes' : 'no'),
-    'stale: ' + (a.stale ? 'yes' : 'no'),
-    'refreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'),
-    (a.data_age_seconds !== undefined && a.data_age_seconds !== null) ? 'data age: ' + a.data_age_seconds + 's' : '',
-    a.attempted_at ? 'last attempt: ' + fmtTime(a.attempted_at) : '',
-  ]);
-  return { text: text, tip: tip };
+  if (plan.shared_keys > 1) badges += ' <span class="badge info">shared pool</span>';
+  return {
+    text: '<b>' + esc(a.name) + '</b>' + badges
+      + (a.key_suffix ? '<br><span class="muted">…' + esc(a.key_suffix) + '</span>' : ''),
+    title: 'Account',
+    items: [
+      ['name', a.name],
+      ['key suffix', a.key_suffix ? '…' + a.key_suffix : ''],
+      ['providers', (a.providers && a.providers.length) ? a.providers.join(', ') : ''],
+      ['user', joinList([id.user_name, id.name]).join(' / ')],
+      ['email', id.email || ''],
+      ['org id', id.org_id || ''],
+      ['windows enforced', enforcedLabel(a)],
+      ['disabled', a.disabled ? 'yes' : 'no'],
+      ['stale', a.stale ? 'yes' : 'no'],
+      ['refreshed', a.refreshed_at ? fmtTime(a.refreshed_at) : 'never'],
+      ['data age', (a.data_age_seconds === undefined || a.data_age_seconds === null) ? '' : a.data_age_seconds + 's'],
+      ['last attempt', a.attempted_at ? fmtTime(a.attempted_at) : ''],
+    ],
+    sections: [],
+  };
 }
 
 function planCell(a) {
@@ -276,143 +424,205 @@ function planCell(a) {
   if (!plan.id) {
     return {
       text: '<span class="muted">no subscription</span>',
-      tip: 'no active subscription reported by /alpha/billing/subscriptions',
+      title: 'Plan',
+      items: [['subscription', 'none reported by /alpha/billing/subscriptions']],
+      sections: [],
     };
   }
-  var text = '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status);
-  var tip = join([
-    'planId: ' + plan.id,
-    plan.marketing_name ? 'marketing name: ' + plan.marketing_name : '',
-    plan.known === false ? 'catalog: UNKNOWN planId — raw API values only' : 'catalog: known plan',
-    'status: ' + (plan.status || '-'),
-    plan.quantity !== undefined ? 'quantity: ' + plan.quantity : '',
-    'cancel at period end: ' + (plan.cancel_at_period_end ? 'yes' : 'no'),
-    plan.subscription_id ? 'subscription: ' + plan.subscription_id : '',
-    plan.price_id ? 'price: ' + plan.price_id : '',
-    plan.created_at ? 'created: ' + fmtTime(plan.created_at) : '',
-    plan.current_period_start ? 'billing period start: ' + fmtTime(plan.current_period_start) : '',
-    plan.current_period_end ? 'billing period end: ' + fmtTime(plan.current_period_end) : '',
-    (plan.days_remaining === undefined || plan.days_remaining === null) ? '' : 'days remaining: ' + plan.days_remaining,
-    plan.pending_phase ? 'pending phase: ' + JSON.stringify(plan.pending_phase) : '',
-  ]);
-  return { text: text, tip: tip };
+  return {
+    text: '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status),
+    title: 'Plan',
+    items: [
+      ['planId', plan.id],
+      ['name', plan.name || ''],
+      ['marketing name', plan.marketing_name || ''],
+      ['catalog', plan.known === false ? 'UNKNOWN planId — raw API values only' : 'known plan'],
+      ['status', plan.status || ''],
+      ['quantity', plan.quantity === undefined ? '' : String(plan.quantity)],
+      ['cancel at period end', plan.cancel_at_period_end ? 'yes' : 'no'],
+      ['subscription id', plan.subscription_id || ''],
+      ['price id', plan.price_id || ''],
+      ['created', plan.created_at ? fmtTime(plan.created_at) : ''],
+      ['pending phase', plan.pending_phase ? JSON.stringify(plan.pending_phase) : ''],
+    ],
+    sections: [],
+  };
 }
 
-function windowCell(w) {
+function windowCell(title, w) {
   if (!w || w.used === undefined) {
-    return { text: '<span class="muted">n/a</span>', tip: 'no /alpha/billing/credits reading for this window yet' };
+    return { text: '<span class="muted">n/a</span>', title: title, items: [['reading', 'not available yet']], sections: [] };
   }
   var pct = w.used_percent;
-  var text = bar(pct) + '<span class="mono ' + pctClass(pct) + '">' + fmtNum(pct, 1) + '%</span>';
-  var tip = join([
-    'used:  $' + fmtNum(w.used, 6),
-    'cap:   $' + fmtNum(w.cap, 2),
-    'headroom: $' + fmtNum(w.headroom, 6),
-    'percent: ' + fmtNum(pct, 2) + '%  (credit value used vs cap)',
-    'exceeded: ' + fmtBool(w.exceeded),
-    'blocked: ' + (w.blocked ? 'yes' : 'no') + (w.blocked ? '  (effective: ' + (w.blocked_effective ? 'yes' : 'no — prepaid credits bypass caps') + ')' : ''),
-    'reset at: ' + (w.reset_at ? fmtTime(w.reset_at) : 'unknown'),
-    'resets in: ' + (w.resets_in || 'unknown'),
-  ]);
-  return { text: text, tip: tip };
+  return {
+    text: bar(pct) + '<span class="mono ' + pctClass(pct) + '">' + fmtNum(pct, 1) + '%</span>',
+    title: title,
+    items: [
+      ['used', '$' + fmtNum(w.used, 6)],
+      ['cap', '$' + fmtNum(w.cap, 2)],
+      ['headroom', '$' + fmtNum(w.headroom, 6)],
+      ['percent', fmtNum(pct, 2) + '% (credit value used vs cap)'],
+      ['exceeded', fmtBool(w.exceeded)],
+      ['blocked', w.blocked ? 'yes' : 'no'],
+      ['blocked effective', w.blocked ? (w.blocked_effective ? 'yes' : 'no — prepaid credits bypass caps') : 'no'],
+      ['reset at', w.reset_at ? fmtTime(w.reset_at) : 'unknown'],
+      ['resets in', w.resets_in || 'unknown'],
+    ],
+    sections: [],
+  };
 }
 
 function creditsCell(a) {
   var bal = a.balance || {};
   if (bal.total_remaining === undefined && bal.monthly_remaining === undefined) {
-    return { text: '<span class="muted">n/a</span>', tip: 'no /alpha/billing/credits reading yet' };
+    return { text: '<span class="muted">n/a</span>', title: 'Credits', items: [['reading', 'not available yet']], sections: [] };
   }
   var text = '<span class="mono">$' + fmtNum(bal.total_remaining, 2) + '</span>';
   var parts = [];
   if (bal.purchased_credits) parts.push('topped up $' + fmtNum(bal.purchased_credits, 2));
   if (bal.free_credits) parts.push('free $' + fmtNum(bal.free_credits, 2));
   if (parts.length) text += '<br><span class="muted">' + parts.join(' · ') + '</span>';
-  var tip = join([
-    'pay-as-you-go balance: $' + fmtNum(bal.total_remaining, 6),
-    'purchased credits: $' + fmtNum(bal.purchased_credits, 6),
-    'free credits: $' + fmtNum(bal.free_credits, 6),
-    bal.monthly_remaining ? 'included monthly credits: $' + fmtNum(bal.monthly_remaining, 6) : '',
-    'windows enforced: ' + enforcedLabel(a),
-    'window exceeded flag: ' + fmtBool(bal.window_exceeded),
-    'low-credit warning: ' + (bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'),
-  ]);
-  return { text: text, tip: tip };
+  return {
+    text: text,
+    title: 'Credits',
+    items: [
+      ['balance', '$' + fmtNum(bal.total_remaining, 6)],
+      ['purchased credits', '$' + fmtNum(bal.purchased_credits, 6)],
+      ['free credits', '$' + fmtNum(bal.free_credits, 6)],
+      ['monthly credits left', bal.monthly_remaining ? '$' + fmtNum(bal.monthly_remaining, 6) : ''],
+      ['windows enforced', enforcedLabel(a)],
+      ['window exceeded flag', fmtBool(bal.window_exceeded)],
+      ['low-credit warning', bal.below_threshold ? 'ACTIVE (threshold $' + fmtNum(bal.credit_threshold, 2) + ')' : 'off'],
+    ],
+    sections: [],
+  };
 }
 
 function periodCell(a) {
   var plan = a.plan || {};
   if (!plan.current_period_start) {
-    return { text: '<span class="muted">n/a</span>', tip: 'no billing period reported' };
+    return { text: '<span class="muted">n/a</span>', title: 'Billing period', items: [['period', 'not reported']], sections: [] };
   }
   var dr = plan.days_remaining;
-  var text = '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
-    + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>';
-  var tip = join([
-    'billing period start: ' + fmtTime(plan.current_period_start),
-    'billing period end:   ' + fmtTime(plan.current_period_end),
-    'days remaining: ' + (dr === undefined || dr === null ? '-' : dr),
-    'period elapsed: ' + fmtNum(plan.period_elapsed_percent, 2) + '%',
-  ]);
-  return { text: text, tip: tip };
+  return {
+    text: '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
+      + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>',
+    title: 'Billing period',
+    items: [
+      ['start', fmtTime(plan.current_period_start)],
+      ['end', fmtTime(plan.current_period_end)],
+      ['days remaining', (dr === undefined || dr === null) ? '' : String(dr)],
+      ['elapsed', fmtNum(plan.period_elapsed_percent, 2) + '%'],
+    ],
+    sections: [],
+  };
 }
 
 function spendCell(a) {
   var s = a.period_summary;
   if (!s) {
-    return { text: '<span class="muted">n/a</span>', tip: 'billing-period spend unavailable or disabled (include-usage-summary)' };
+    return { text: '<span class="muted">n/a</span>', title: 'Billing-period spend', items: [['reading', 'unavailable or disabled (include-usage-summary)']], sections: [] };
   }
-  var text = '<span class="mono">$' + fmtNum(s.total_cost, 4) + '</span>';
-  var tip = join([
-    'billing-period spend: $' + fmtNum(s.total_cost, 6),
-    'credits charged: $' + fmtNum(s.total_credits, 6) + '  (monthly $' + fmtNum(s.total_monthly_credits, 6)
-      + ', purchased $' + fmtNum(s.total_purchased_credits, 6) + ', free $' + fmtNum(s.total_free_credits, 6) + ')',
-    'average per request: $' + fmtNum(s.average_cost, 6),
-    'requested since: ' + (s.since || '-'),
-    'effective since: ' + (s.since_effective || '-') + '   [' + (s.granularity || 'unknown') + ' bucketing]',
-    'period basis: ' + (s.period_basis || '-'),
-    '--- diagnostics (not billing units) ---',
-    fmtNum(s.requests, 0) + ' requests, ' + fmtNum(s.failed, 0) + ' failed, success rate ' + fmtNum(s.success_rate, 2) + '%',
-    'tokens: ' + fmtNum(s.tokens_in, 0) + ' in / ' + fmtNum(s.tokens_out, 0) + ' out / ' + fmtNum(s.tokens_total, 0) + ' total',
-  ]);
-  return { text: text, tip: tip };
+  var tip = {
+    text: '<span class="mono">$' + fmtNum(s.total_cost, 4) + '</span>',
+    title: 'Billing-period spend',
+    items: [
+      ['spend', '$' + fmtNum(s.total_cost, 6)],
+      ['credits charged', '$' + fmtNum(s.total_credits, 6)],
+      ['monthly credits', '$' + fmtNum(s.total_monthly_credits, 6)],
+      ['purchased credits', '$' + fmtNum(s.total_purchased_credits, 6)],
+      ['free credits', '$' + fmtNum(s.total_free_credits, 6)],
+      ['average per request', '$' + fmtNum(s.average_cost, 6)],
+      ['requested since', s.since || ''],
+      ['effective since', (s.since_effective || '') + (s.granularity ? '  [' + s.granularity + ' bucketing]' : '')],
+      ['period basis', s.period_basis || ''],
+    ],
+    sections: [{
+      title: 'Diagnostics (not billing units)',
+      items: [
+        ['requests', fmtNum(s.requests, 0)],
+        ['failed', fmtNum(s.failed, 0)],
+        ['success rate', fmtNum(s.success_rate, 2) + '%'],
+        ['tokens in', fmtNum(s.tokens_in, 0)],
+        ['tokens out', fmtNum(s.tokens_out, 0)],
+        ['tokens total', fmtNum(s.tokens_total, 0)],
+      ],
+    }],
+  };
+  return tip;
 }
 
 function healthCell(a) {
   var errs = a.errors ? Object.keys(a.errors) : [];
-  var text = errs.length ? '<span class="bad">' + errs.length + ' err</span>' : '<span class="ok">ok</span>';
-  var tip = errs.length ? join(errs.map(function (k) { return k + ': ' + a.errors[k]; })) : 'all /alpha/* endpoints healthy';
-  tip += '\nrefreshed: ' + (a.refreshed_at ? fmtTime(a.refreshed_at) : 'never');
-  if (a.data_age_seconds !== undefined && a.data_age_seconds !== null) tip += '\ndata age: ' + a.data_age_seconds + 's';
-  if (a.stale) tip += '\nSTALE: older than usage-stale-after';
-  return { text: text, tip: tip };
+  var items = [['endpoints', errs.length ? errs.length + ' failing' : 'all /alpha/* endpoints healthy']];
+  for (var i = 0; i < errs.length; i++) items.push([errs[i], a.errors[errs[i]]]);
+  return {
+    text: errs.length ? '<span class="bad">' + errs.length + ' err</span>' : '<span class="ok">ok</span>',
+    title: 'Health',
+    items: items,
+    sections: [],
+  };
 }
 
-function accountRow(a, payg) {
-  var acct = accountCell(a);
-  var plan = planCell(a);
-  var health = healthCell(a);
-  var html = '<tr>' + cell(acct.text, acct.tip) + cell(plan.text, plan.tip);
-  if (payg) {
-    var credits = creditsCell(a);
-    var spend = spendCell(a);
-    html += cell(credits.text, credits.tip, 'tip') + cell(spend.text, spend.tip, 'tip');
-  } else {
-    var w5 = windowCell((a.windows || {})['5h']);
-    var ww = windowCell((a.windows || {}).weekly);
-    var period = periodCell(a);
-    html += cell(w5.text, '5-hour window\n' + w5.tip, 'tip');
-    html += cell(ww.text, 'weekly window\n' + ww.tip, 'tip');
-    html += cell(period.text, period.tip, 'tip');
+/* ---- rendering ---- */
+
+function renderSections(cells) {
+  var html = '';
+  for (var i = 0; i < cells.length; i++) {
+    var cell = cells[i];
+    var items = joinList(cell.items.map(function (entry) { return entry[1] ? entry : null; }));
+    if (!items.length) continue;
+    html += '<div class="detail-section"><div class="detail-title">' + esc(cell.title) + '</div>';
+    for (var j = 0; j < items.length; j++) {
+      html += '<div class="kv"><span>' + esc(items[j][0]) + '</span> <span class="mono">' + esc(items[j][1]) + '</span></div>';
+    }
+    html += '</div>';
+    var sections = cell.sections || [];
+    for (var k = 0; k < sections.length; k++) {
+      var section = sections[k];
+      var sectionItems = joinList(section.items.map(function (entry) { return entry[1] ? entry : null; }));
+      if (!sectionItems.length) continue;
+      html += '<div class="detail-section"><div class="detail-title">' + esc(section.title) + '</div>';
+      for (var m = 0; m < sectionItems.length; m++) {
+        html += '<div class="kv"><span>' + esc(sectionItems[m][0]) + '</span> <span class="mono">' + esc(sectionItems[m][1]) + '</span></div>';
+      }
+      html += '</div>';
+    }
   }
-  return html + cell(health.text, health.tip, 'tip') + '</tr>';
+  return html;
 }
 
-function tableHTML(accounts, columns, payg) {
-  var html = '<div class="card"><table class="grid"><tr>';
+function accountRows(a, payg, index) {
+  var cells = [accountCell(a), planCell(a)];
+  if (payg) {
+    cells.push(creditsCell(a));
+    cells.push(spendCell(a));
+  } else {
+    cells.push(windowCell('5-hour window', (a.windows || {})['5h']));
+    cells.push(windowCell('Weekly window', (a.windows || {}).weekly));
+    cells.push(periodCell(a));
+  }
+  cells.push(healthCell(a));
+
+  var columns = cells.length;
+  var row = '<tr class="acct" data-idx="' + index + '" tabindex="0" role="button" aria-expanded="false">';
+  for (var i = 0; i < cells.length; i++) {
+    var prefix = i === 0 ? '<span class="caret">▸</span>' : '';
+    row += '<td>' + prefix + cells[i].text + '</td>';
+  }
+  row += '</tr>';
+
+  var detail = '<tr class="detail" data-detail="' + index + '" hidden><td colspan="' + columns + '">'
+    + '<div class="detail-body"><div class="detail-grid">' + renderSections(cells) + '</div></div></td></tr>';
+  return row + detail;
+}
+
+function tableHTML(accounts, columns, payg, startIndex) {
+  var html = '<div class="card"><table class="grid"><thead><tr>';
   for (var i = 0; i < columns.length; i++) html += '<th>' + columns[i] + '</th>';
-  html += '</tr>';
-  for (var j = 0; j < accounts.length; j++) html += accountRow(accounts[j], payg);
-  return html + '</table></div>';
+  html += '</tr></thead><tbody>';
+  for (var j = 0; j < accounts.length; j++) html += accountRows(accounts[j], payg, startIndex + j);
+  return html + '</tbody></table></div>';
 }
 
 function render(status) {
@@ -425,8 +635,6 @@ function render(status) {
     + ' · ' + fmtTime(status.generated_at);
   document.getElementById('refresh').hidden = !keyInput.value.trim();
 
-  hideTip();
-  TIPS.length = 0;
   var html = '';
   if (status.config_error) html += '<div class="card bad">config error: ' + esc(status.config_error) + '</div>';
   var shared = status.shared_subscriptions || [];
@@ -447,18 +655,40 @@ function render(status) {
     else subscription.push(status.accounts[j]);
   }
   if (subscription.length) {
-    html += '<div class="muted" style="margin:0 0 6px 2px">Windows enforced (<span class="mono">windowLimits.limited = true</span>) — subscription plans, throttled by rolling 5h/weekly credit-value limits</div>';
-    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Health'], false);
+    html += '<div class="section-label">Windows enforced (<span class="mono">windowLimits.limited = true</span>) — subscription plans, throttled by rolling 5h/weekly credit-value limits</div>';
+    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Health'], false, 0);
   }
   if (payAsYouGo.length) {
-    html += '<div class="muted" style="margin:12px 0 6px 2px">Windows not enforced (<span class="mono">windowLimits.limited = false</span>) — pay-as-you-go, limited by the prepaid credit balance</div>';
-    html += tableHTML(payAsYouGo, ['Account', 'Plan', 'Credits', 'Spend', 'Health'], true);
+    html += '<div class="section-label">Windows not enforced (<span class="mono">windowLimits.limited = false</span>) — pay-as-you-go, limited by the prepaid credit balance</div>';
+    html += tableHTML(payAsYouGo, ['Account', 'Plan', 'Credits', 'Spend', 'Health'], true, subscription.length);
   }
-  html += '<div class="muted" style="margin-top:8px">Hover any cell for the full reading. '
-    + 'CommandCode limits are credit/USD-equivalent, not request quotas, so every column is amount-based; '
-    + 'request counts appear only as tooltip diagnostics.</div>';
+  html += '<div class="muted" style="margin-top:10px">Click a row to expand the full reading. '
+    + 'CommandCode limits are credit/USD-equivalent, not request quotas, so every column is amount-based.</div>';
   contentEl.innerHTML = html;
 }
+
+function toggleRow(row) {
+  var detail = contentEl.querySelector('tr.detail[data-detail="' + row.getAttribute('data-idx') + '"]');
+  if (!detail) return;
+  var open = detail.hidden;
+  detail.hidden = !open;
+  row.classList.toggle('open', open);
+  row.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+contentEl.addEventListener('click', function (e) {
+  var target = e.target;
+  var row = target && target.closest ? target.closest('tr.acct') : null;
+  if (row) toggleRow(row);
+});
+contentEl.addEventListener('keydown', function (e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  var target = e.target;
+  var row = target && target.closest ? target.closest('tr.acct') : null;
+  if (!row) return;
+  e.preventDefault();
+  toggleRow(row);
+});
 
 /* ---- data ---- */
 
@@ -485,7 +715,7 @@ async function load() {
 
 async function plansHTML() {
   var data = await fetchJSON(MGMT + '/plans', { headers: authHeaders() });
-  var html = '<div class="card"><h2>Plan catalog</h2><table class="grid"><tr><th>planId</th><th>Name</th><th>Marketing</th><th>Monthly credits</th><th>5h cap</th><th>Weekly cap</th></tr>';
+  var html = '<div class="card"><h2>Plan catalog</h2><table class="grid"><thead><tr><th>planId</th><th>Name</th><th>Marketing</th><th>Monthly credits</th><th>5h cap</th><th>Weekly cap</th></tr></thead><tbody>';
   for (var i = 0; i < data.plans.length; i++) {
     var p = data.plans[i];
     html += '<tr><td class="mono">' + esc(p.id) + '</td><td>' + esc(p.name) + '</td><td>' + esc(p.marketing_name || '')
@@ -493,7 +723,7 @@ async function plansHTML() {
       + '</td><td>' + (p.five_hour_cap === undefined ? '-' : '$' + fmtNum(p.five_hour_cap, 2))
       + '</td><td>' + (p.weekly_cap === undefined ? '-' : '$' + fmtNum(p.weekly_cap, 2)) + '</td></tr>';
   }
-  return html + '</table><div class="muted" style="margin-top:8px">Reference data from the CommandCode CLI bundle and pricing page; the live API remains authoritative for caps and balances.</div></div>';
+  return html + '</tbody></table><div class="muted" style="margin-top:8px">Reference data from the CommandCode CLI bundle and pricing page; the live API remains authoritative for caps and balances.</div></div>';
 }
 
 function showError(e) { document.getElementById('error').textContent = String(e); }
@@ -515,21 +745,6 @@ document.getElementById('togglePlans').addEventListener('click', async function 
     el.hidden = true;
   }
 });
-
-// Tooltip wiring: delegated so table re-renders need no re-binding.
-contentEl.addEventListener('mouseover', function (e) {
-  var target = e.target;
-  var cellEl = target && target.closest ? target.closest('td[data-tip-idx]') : null;
-  if (cellEl) showTipFor(cellEl, e); else hideTip();
-});
-contentEl.addEventListener('mousemove', function (e) {
-  if (state.tipVisible) placeTip(e.clientX, e.clientY);
-});
-contentEl.addEventListener('mouseout', function (e) {
-  var target = e.target;
-  if (target && target.closest && target.closest('td[data-tip-idx]')) hideTip();
-});
-window.addEventListener('scroll', hideTip, true);
 
 // No interaction required: loading starts as soon as a key is available, and a
 // key that is typed or pasted in triggers a load by itself.

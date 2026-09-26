@@ -68,14 +68,14 @@ plugins:
 
 ```sh
 make test
-make build VERSION=0.2.2
-make build VERSION=0.2.2 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
-make package VERSION=0.2.2                                       # 生成插件商店 zip 与校验和
-make package VERSION=0.2.2 ARCHS="amd64 arm64"                   # 两种架构
+make build VERSION=0.2.3
+make build VERSION=0.2.3 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
+make package VERSION=0.2.3                                       # 生成插件商店 zip 与校验和
+make package VERSION=0.2.3 ARCHS="amd64 arm64"                   # 两种架构
 ```
 
-将 `dist/commandcode-pool-v0.2.2.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
-（arm64 使用 `dist/commandcode-pool-v0.2.2-arm64.so` 与 `plugins/linux/arm64/`）。
+将 `dist/commandcode-pool-v0.2.3.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
+（arm64 使用 `dist/commandcode-pool-v0.2.3-arm64.so` 与 `plugins/linux/arm64/`）。
 插件 ID 由文件名去掉版本后缀得到，因此打包出的 `commandcode-pool.so` 注册为
 `commandcode-pool`。
 
@@ -142,8 +142,9 @@ plugins:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-页面每个账号一行（紧凑单行表格），完整读数放在与页面卡片同风格的悬浮面板里（不是浏览器默认
-提示框）。列的组成取决于套餐类型，因为 CommandCode 对两类套餐的限流方式不同：
+页面每个账号一行（紧凑单行表格）；**点击该行**（或聚焦后按 Enter/Space）会在行下方展开详情
+面板，完整读数都在那里，不需要鼠标悬停。列的组成取决于套餐类型，因为 CommandCode 对两类套餐的
+限流方式不同：
 
 | 套餐类型 | 列 |
 | --- | --- |
@@ -151,16 +152,23 @@ plugins:
 | 按量付费（`individual-provider`） | Account, Plan, Credits, Spend, Health |
 
 订阅制由滚动额度窗口限流，所以行内以 `5h`、`Weekly` 为主（已用金额对比上限，重置时间与
-倒计时在悬浮面板里），并且**刻意不显示 credits 与 spend 列** —— 订阅制没有充值/预付余额，
+倒计时在展开的详情面板里），并且**刻意不显示 credits 与 spend 列** —— 订阅制没有充值/预付
+余额，
 日常限制就是窗口，这两列只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示
 `Credits`（剩余金额及充值金额）和 `Spend`，并隐藏窗口列。
 
 分组标题直接用该字段本身标注：`windowLimits.limited = true`（**windows enforced**）
 与 `= false` —— 这个字段就是 CommandCode 自己的 plan / 非 plan 判据。当 API 尚未返回该
-字段时，回退用 `planId` 判断，并在 tooltip 中明确标注是推断值，不会把猜测当成事实。
+字段时，回退用 `planId` 判断，并在详情面板中明确标注是推断值，不会把猜测当成事实。
 
 每一列都是**金额口径** —— CommandCode 的限流基于额度/USD 等值而非请求数；请求数、token、
-成功率只作为悬浮面板中的诊断信息。
+成功率只出现在展开面板的 diagnostics 分区里。
+
+页面外观直接继承 CPA Manager Plus：cpamp 用 iframe 内嵌插件页，并注入它的设计 token、
+`data-theme` 以及宿主字体（`--cpamp-plugin-font-family`，即 `Inter, -apple-system,
+BlinkMacSystemFont, "Segoe UI", sans-serif`），因此页面会自动跟随面板的明/暗主题、色板、
+圆角与字体，数字等宽部分取自 `--font-family-mono`。单独打开时则回退到 cpamp 自身的浅色/
+暗色色板（通过 `prefers-color-scheme`）。
 
 **页面会自动加载，无需任何点击。** 打开时会依次从 CPA Manager Plus 持久化的鉴权存储、
 本页之前记住的 key、当前标签页中自动解析管理密钥并立即拉取数据；在输入框里粘贴或输入
@@ -183,7 +191,7 @@ key 也会自动触发加载（回车同理），Load 按钮只是兜底。key �
 
 ```json
 {
-  "version": "0.2.2",
+  "version": "0.2.3",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -295,7 +303,7 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 ```sh
 make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
-make package VERSION=0.2.2
+make package VERSION=0.2.3
 make clean
 ```
 

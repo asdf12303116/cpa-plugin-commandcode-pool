@@ -79,14 +79,14 @@ checksum and writes the versioned library under `plugins/linux/amd64/` or
 
 ```sh
 make test
-make build VERSION=0.2.2
-make build VERSION=0.2.2 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
-make package VERSION=0.2.2                                       # plugin-store zip + checksums
-make package VERSION=0.2.2 ARCHS="amd64 arm64"                   # both architectures
+make build VERSION=0.2.3
+make build VERSION=0.2.3 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
+make package VERSION=0.2.3                                       # plugin-store zip + checksums
+make package VERSION=0.2.3 ARCHS="amd64 arm64"                   # both architectures
 ```
 
-Copy `dist/commandcode-pool-v0.2.2.so` into CPA's `plugins/linux/amd64/`
-directory (use `dist/commandcode-pool-v0.2.2-arm64.so` and
+Copy `dist/commandcode-pool-v0.2.3.so` into CPA's `plugins/linux/amd64/`
+directory (use `dist/commandcode-pool-v0.2.3-arm64.so` and
 `plugins/linux/arm64/` on arm64). The plugin ID is derived from the filename by
 removing the version suffix, so the packaged `commandcode-pool.so` registers as
 `commandcode-pool`.
@@ -158,10 +158,10 @@ Open the plugin page at:
 /v0/resource/plugins/commandcode-pool/status
 ```
 
-The page shows one compact row per account and puts the full reading into a
-styled hover panel that matches the page's cards instead of the browser's
-default tooltip. Columns depend on the plan kind, because CommandCode limits the
-two kinds differently:
+The page shows one compact row per account; clicking a row (or pressing
+Enter/Space while it is focused) expands an inline detail panel with the full
+reading, so no hover interaction is required. Columns depend on the plan kind,
+because CommandCode limits the two kinds differently:
 
 | Plan kind | Columns |
 | --- | --- |
@@ -170,8 +170,8 @@ two kinds differently:
 
 Subscription plans are throttled by the rolling credit-value windows, so their
 row leads with `5h` and `Weekly` (value used against the cap, with reset
-timestamp and countdown in the hover panel). They deliberately carry **neither a
-credits nor a spend column**: a subscription has no prepaid/top-up balance and
+timestamp and countdown in the expanded panel). They deliberately carry **neither
+a credits nor a spend column**: a subscription has no prepaid/top-up balance and
 its day-to-day limit is the window, so those numbers would only add noise.
 Pay-as-you-go accounts have no windows and are limited by their prepaid balance
 instead, so they show `Credits` (`$remaining` plus what was topped up) and
@@ -180,12 +180,20 @@ instead, so they show `Credits` (`$remaining` plus what was topped up) and
 The two groups are labelled with the flag itself — `windowLimits.limited = true`
 (**windows enforced**) vs `= false` — because that field is CommandCode's own
 plan/non-plan discriminator. When the API has not reported it yet, the `planId`
-is used as a fallback and the tooltip marks the value as inferred rather than
-presenting a guess as fact.
+is used as a fallback and the expanded panel marks the value as inferred rather
+than presenting a guess as fact.
 
 Every column is **amount-based** — CommandCode throttles on credit/USD-equivalent
 value rather than request quotas. Request counts, tokens and success rate appear
-only as hover diagnostics.
+only inside the expanded panel, under a diagnostics heading.
+
+The page inherits its look from CPA Manager Plus. cpamp embeds plugin pages in an
+iframe and injects its design tokens, `data-theme` and its host font
+(`--cpamp-plugin-font-family`, i.e. `Inter, -apple-system, BlinkMacSystemFont,
+"Segoe UI", sans-serif`), so the page follows the panel's light/dark theme,
+palette, radii and typeface automatically, with monospace figures taken from
+`--font-family-mono`. Opened standalone it falls back to cpamp's own light and
+dark palettes via `prefers-color-scheme`.
 
 **The page loads by itself — no clicking required.** On open it resolves the
 management key automatically from CPA Manager Plus' persisted auth store, from
@@ -211,7 +219,7 @@ Abbreviated `status` response:
 
 ```json
 {
-  "version": "0.2.2",
+  "version": "0.2.3",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -333,7 +341,7 @@ shown with raw API values only (`"known": false`).
 ```sh
 make test     # gofmt check is in CI; runs go vet + go test
 make build
-make package VERSION=0.2.2
+make package VERSION=0.2.3
 make clean
 ```
 
