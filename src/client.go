@@ -183,7 +183,7 @@ type creditsResponse struct {
 	Credits        *creditBalances `json:"credits"`
 	WindowLimits   *windowLimits   `json:"windowLimits"`
 	SandboxAccess  *bool           `json:"sandboxAccess"`
-	SandboxMinutes *float64        `json:"sandboxMinutes"`
+	SandboxMinutes *sandboxMinutes `json:"sandboxMinutes"`
 }
 
 type creditBalances struct {
@@ -206,6 +206,17 @@ type limitWindow struct {
 	Cap      float64 `json:"cap"`
 	Exceeded *bool   `json:"exceeded"`
 	ResetAt  int64   `json:"resetAt"`
+}
+
+// sandboxMinutes is the sandbox allowance envelope. It was a nullable number
+// (`null`) in the 2026-09 capture and became an object by 2026-10. It is modeled
+// as a struct so this one field changing shape cannot fail the whole credits
+// decode and blank out the balance/window columns.
+type sandboxMinutes struct {
+	UsedMinutes  float64 `json:"usedMinutes"`
+	LimitMinutes float64 `json:"limitMinutes"`
+	OverageUSD   float64 `json:"overageUsd"`
+	ResetAt      int64   `json:"resetAt"` // epoch MILLISECONDS
 }
 
 type usageSummary struct {

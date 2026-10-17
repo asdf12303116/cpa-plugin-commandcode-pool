@@ -111,19 +111,28 @@ type planStatus struct {
 }
 
 type balanceStatus struct {
-	MonthlyRemaining       *float64 `json:"monthly_remaining,omitempty"`
-	MonthlyIncluded        *float64 `json:"monthly_included,omitempty"`
-	MonthlyConsumed        *float64 `json:"monthly_consumed,omitempty"`
-	MonthlyConsumedPercent *float64 `json:"monthly_consumed_percent,omitempty"`
-	PurchasedCredits       *float64 `json:"purchased_credits,omitempty"`
-	FreeCredits            *float64 `json:"free_credits,omitempty"`
-	TotalRemaining         *float64 `json:"total_remaining,omitempty"`
-	BelowThreshold         *bool    `json:"below_threshold,omitempty"`
-	CreditThreshold        *float64 `json:"credit_threshold,omitempty"`
-	Limited                *bool    `json:"limited,omitempty"`
-	WindowExceeded         *bool    `json:"window_exceeded,omitempty"`
-	SandboxAccess          *bool    `json:"sandbox_access,omitempty"`
-	SandboxMinutes         *float64 `json:"sandbox_minutes,omitempty"`
+	MonthlyRemaining       *float64              `json:"monthly_remaining,omitempty"`
+	MonthlyIncluded        *float64              `json:"monthly_included,omitempty"`
+	MonthlyConsumed        *float64              `json:"monthly_consumed,omitempty"`
+	MonthlyConsumedPercent *float64              `json:"monthly_consumed_percent,omitempty"`
+	PurchasedCredits       *float64              `json:"purchased_credits,omitempty"`
+	FreeCredits            *float64              `json:"free_credits,omitempty"`
+	TotalRemaining         *float64              `json:"total_remaining,omitempty"`
+	BelowThreshold         *bool                 `json:"below_threshold,omitempty"`
+	CreditThreshold        *float64              `json:"credit_threshold,omitempty"`
+	Limited                *bool                 `json:"limited,omitempty"`
+	WindowExceeded         *bool                 `json:"window_exceeded,omitempty"`
+	SandboxAccess          *bool                 `json:"sandbox_access,omitempty"`
+	SandboxMinutes         *sandboxMinutesStatus `json:"sandbox_minutes,omitempty"`
+}
+
+// sandboxMinutesStatus mirrors the sandboxMinutes object the API returns. It
+// changed from a scalar to an object in 2026-10; see client.sandboxMinutes.
+type sandboxMinutesStatus struct {
+	UsedMinutes  *float64 `json:"used_minutes,omitempty"`
+	LimitMinutes *float64 `json:"limit_minutes,omitempty"`
+	OverageUSD   *float64 `json:"overage_usd,omitempty"`
+	ResetAt      string   `json:"reset_at,omitempty"`
 }
 
 type windowStatus struct {
@@ -323,7 +332,14 @@ func buildBalanceStatus(cr *creditsResponse, sub *subscriptionData) balanceStatu
 		out.WindowExceeded = cr.WindowLimits.Exceeded
 	}
 	out.SandboxAccess = cr.SandboxAccess
-	out.SandboxMinutes = cr.SandboxMinutes
+	if sm := cr.SandboxMinutes; sm != nil {
+		out.SandboxMinutes = &sandboxMinutesStatus{
+			UsedMinutes:  floatPtr(round6(sm.UsedMinutes)),
+			LimitMinutes: floatPtr(round6(sm.LimitMinutes)),
+			OverageUSD:   floatPtr(round6(sm.OverageUSD)),
+			ResetAt:      formatTime(epochMillisToTime(sm.ResetAt)),
+		}
+	}
 
 	// monthlyCredits is the REMAINING allowance, so consumption is derived from
 	// the static plan total minus the remaining balance.

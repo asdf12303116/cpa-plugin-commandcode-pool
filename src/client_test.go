@@ -6,7 +6,12 @@ import (
 	"time"
 )
 
-const liveCreditsPayload = `{"credits":{"belowThreshold":false,"creditThreshold":0,"monthlyCredits":49.489632881,"purchasedCredits":0,"freeCredits":0},"windowLimits":{"limited":true,"exceeded":null,"fiveHour":{"used":0.115137764,"cap":14,"exceeded":false,"resetAt":1790370899831},"weekly":{"used":0.401068892,"cap":35,"exceeded":false,"resetAt":1790798433255}},"sandboxAccess":false,"sandboxMinutes":null}`
+const liveCreditsPayload = `{"credits":{"belowThreshold":false,"creditThreshold":0,"monthlyCredits":49.489632881,"purchasedCredits":0,"freeCredits":0},"windowLimits":{"limited":true,"exceeded":null,"fiveHour":{"used":0.115137764,"cap":14,"exceeded":false,"resetAt":1790370899831},"weekly":{"used":0.401068892,"cap":35,"exceeded":false,"resetAt":1790798433255}},"sandboxAccess":true,"sandboxMinutes":{"usedMinutes":0,"limitMinutes":0,"overageUsd":0,"resetAt":1793491200000}}`
+
+// sandboxMinutes was a nullable scalar (`null`) until 2026-09 and became an
+// object in 2026-10. The old shape must still decode (to nil) so the credits
+// response never fails to parse over this field.
+const legacyCreditsPayload = `{"credits":{"belowThreshold":false,"creditThreshold":0,"monthlyCredits":49.489632881,"purchasedCredits":0,"freeCredits":0},"windowLimits":{"limited":true,"exceeded":null,"fiveHour":{"used":0.115137764,"cap":14,"exceeded":false,"resetAt":1790370899831},"weekly":{"used":0.401068892,"cap":35,"exceeded":false,"resetAt":1790798433255}},"sandboxAccess":false,"sandboxMinutes":null}`
 
 func TestParseCreditsPayloadKeepsNullExceeded(t *testing.T) {
 	var cr creditsResponse
@@ -28,6 +33,40 @@ func TestParseCreditsPayloadKeepsNullExceeded(t *testing.T) {
 	}
 	if cr.WindowLimits.Weekly == nil || cr.WindowLimits.Weekly.Cap != 35 {
 		t.Fatalf("weekly = %+v", cr.WindowLimits.Weekly)
+	}
+}
+
+// TestParseCreditsPayloadDecodesSandboxMinutesObject guards the 2026-10 shape
+// change: a scalar->object field must not fail the whole credits decode.
+func TestParseCreditsPayloadDecodesSandboxMinutesObject(t *testing.T) {
+	var cr creditsResponse
+	if errUnmarshal := json.Unmarshal([]byte(liveCreditsPayload), &cr); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if cr.SandboxMinutes == nil {
+		t.Fatal("sandboxMinutes object must decode, not be dropped")
+	}
+	if cr.SandboxMinutes.ResetAt != 1793491200000 {
+		t.Errorf("sandboxMinutes.resetAt = %d", cr.SandboxMinutes.ResetAt)
+	}
+	if cr.SandboxMinutes.UsedMinutes != 0 || cr.SandboxMinutes.LimitMinutes != 0 || cr.SandboxMinutes.OverageUSD != 0 {
+		t.Errorf("sandboxMinutes = %+v", cr.SandboxMinutes)
+	}
+	if cr.Credits == nil || cr.WindowLimits == nil {
+		t.Fatal("balance/window fields must survive a changed sandboxMinutes")
+	}
+}
+
+func TestParseCreditsPayloadToleratesLegacyNullSandboxMinutes(t *testing.T) {
+	var cr creditsResponse
+	if errUnmarshal := json.Unmarshal([]byte(legacyCreditsPayload), &cr); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if cr.SandboxMinutes != nil {
+		t.Errorf("null sandboxMinutes must decode to nil, got %+v", cr.SandboxMinutes)
+	}
+	if cr.SandboxAccess == nil || *cr.SandboxAccess {
+		t.Errorf("sandboxAccess = %v", cr.SandboxAccess)
 	}
 }
 

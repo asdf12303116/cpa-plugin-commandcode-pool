@@ -79,14 +79,14 @@ checksum and writes the versioned library under `plugins/linux/amd64/` or
 
 ```sh
 make test
-make build VERSION=0.2.3
-make build VERSION=0.2.3 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
-make package VERSION=0.2.3                                       # plugin-store zip + checksums
-make package VERSION=0.2.3 ARCHS="amd64 arm64"                   # both architectures
+make build VERSION=0.2.4
+make build VERSION=0.2.4 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
+make package VERSION=0.2.4                                       # plugin-store zip + checksums
+make package VERSION=0.2.4 ARCHS="amd64 arm64"                   # both architectures
 ```
 
-Copy `dist/commandcode-pool-v0.2.3.so` into CPA's `plugins/linux/amd64/`
-directory (use `dist/commandcode-pool-v0.2.3-arm64.so` and
+Copy `dist/commandcode-pool-v0.2.4.so` into CPA's `plugins/linux/amd64/`
+directory (use `dist/commandcode-pool-v0.2.4-arm64.so` and
 `plugins/linux/arm64/` on arm64). The plugin ID is derived from the filename by
 removing the version suffix, so the packaged `commandcode-pool.so` registers as
 `commandcode-pool`.
@@ -219,7 +219,7 @@ Abbreviated `status` response:
 
 ```json
 {
-  "version": "0.2.3",
+  "version": "0.2.4",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -341,7 +341,7 @@ shown with raw API values only (`"known": false`).
 ```sh
 make test     # gofmt check is in CI; runs go vet + go test
 make build
-make package VERSION=0.2.3
+make package VERSION=0.2.4
 make clean
 ```
 

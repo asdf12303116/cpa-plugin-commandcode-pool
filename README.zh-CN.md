@@ -68,14 +68,14 @@ plugins:
 
 ```sh
 make test
-make build VERSION=0.2.3
-make build VERSION=0.2.3 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
-make package VERSION=0.2.3                                       # 生成插件商店 zip 与校验和
-make package VERSION=0.2.3 ARCHS="amd64 arm64"                   # 两种架构
+make build VERSION=0.2.4
+make build VERSION=0.2.4 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
+make package VERSION=0.2.4                                       # 生成插件商店 zip 与校验和
+make package VERSION=0.2.4 ARCHS="amd64 arm64"                   # 两种架构
 ```
 
-将 `dist/commandcode-pool-v0.2.3.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
-（arm64 使用 `dist/commandcode-pool-v0.2.3-arm64.so` 与 `plugins/linux/arm64/`）。
+将 `dist/commandcode-pool-v0.2.4.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
+（arm64 使用 `dist/commandcode-pool-v0.2.4-arm64.so` 与 `plugins/linux/arm64/`）。
 插件 ID 由文件名去掉版本后缀得到，因此打包出的 `commandcode-pool.so` 注册为
 `commandcode-pool`。
 
@@ -191,7 +191,7 @@ key 也会自动触发加载（回车同理），Load 按钮只是兜底。key �
 
 ```json
 {
-  "version": "0.2.3",
+  "version": "0.2.4",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -303,7 +303,7 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 ```sh
 make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
-make package VERSION=0.2.3
+make package VERSION=0.2.4
 make clean
 ```
 
