@@ -79,14 +79,14 @@ checksum and writes the versioned library under `plugins/linux/amd64/` or
 
 ```sh
 make test
-make build VERSION=0.2.4
-make build VERSION=0.2.4 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
-make package VERSION=0.2.4                                       # plugin-store zip + checksums
-make package VERSION=0.2.4 ARCHS="amd64 arm64"                   # both architectures
+make build VERSION=0.2.5
+make build VERSION=0.2.5 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 cross build
+make package VERSION=0.2.5                                       # plugin-store zip + checksums
+make package VERSION=0.2.5 ARCHS="amd64 arm64"                   # both architectures
 ```
 
-Copy `dist/commandcode-pool-v0.2.4.so` into CPA's `plugins/linux/amd64/`
-directory (use `dist/commandcode-pool-v0.2.4-arm64.so` and
+Copy `dist/commandcode-pool-v0.2.5.so` into CPA's `plugins/linux/amd64/`
+directory (use `dist/commandcode-pool-v0.2.5-arm64.so` and
 `plugins/linux/arm64/` on arm64). The plugin ID is derived from the filename by
 removing the version suffix, so the packaged `commandcode-pool.so` registers as
 `commandcode-pool`.
@@ -165,14 +165,17 @@ because CommandCode limits the two kinds differently:
 
 | Plan kind | Columns |
 | --- | --- |
-| Subscription (Go/GOAT/Pro/Max/Ultra/Teams) | Account, Plan, 5h, Weekly, Period, Health |
+| Subscription (Go/GOAT/Pro/Max/Ultra/Teams) | Account, Plan, 5h, Weekly, Monthly, Health |
 | Pay-as-you-go (`individual-provider`) | Account, Plan, Credits, Spend, Health |
 
 Subscription plans are throttled by the rolling credit-value windows, so their
 row leads with `5h` and `Weekly` (value used against the cap, with reset
-timestamp and countdown in the expanded panel). They deliberately carry **neither
-a credits nor a spend column**: a subscription has no prepaid/top-up balance and
-its day-to-day limit is the window, so those numbers would only add noise.
+timestamp and countdown in the expanded panel), followed by `Monthly` (the
+included monthly allowance consumed against the plan total). The `Plan` cell
+also carries the subscription expiry (billing period end). They deliberately
+carry **neither a credits nor a spend column**: a subscription has no
+prepaid/top-up balance and its day-to-day limit is the window, so those numbers
+would only add noise.
 Pay-as-you-go accounts have no windows and are limited by their prepaid balance
 instead, so they show `Credits` (`$remaining` plus what was topped up) and
 `Spend`, and hide the window columns.
@@ -219,7 +222,7 @@ Abbreviated `status` response:
 
 ```json
 {
-  "version": "0.2.4",
+  "version": "0.2.5",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -341,7 +344,7 @@ shown with raw API values only (`"known": false`).
 ```sh
 make test     # gofmt check is in CI; runs go vet + go test
 make build
-make package VERSION=0.2.4
+make package VERSION=0.2.5
 make clean
 ```
 

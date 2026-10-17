@@ -19,9 +19,11 @@ package main
 // CommandCode throttles on credit/USD-equivalent value rather than request
 // quotas, so every column is amount-based. Columns also depend on
 // windowLimits.limited, the API's own plan/non-plan discriminator: subscription
-// plans are limited by the rolling 5h/weekly windows and do not need credit or
-// spend columns, while pay-as-you-go (Provider) accounts have no windows and are
-// limited by their prepaid balance.
+// plans show the rolling 5h/weekly windows and the included monthly allowance,
+// and carry neither a credit nor a spend column, while pay-as-you-go (Provider)
+// accounts have no windows and are limited by their prepaid balance instead.
+// The Plan cell also carries the subscription expiry, i.e. the billing period
+// end.
 const statusPageHTML = `<!doctype html>
 <html lang="en">
 <head>
@@ -336,6 +338,13 @@ function esc(s) {
   });
 }
 function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : ''; }
+function fmtDate(iso) {
+  if (!iso) return '';
+  var d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
 function fmtNum(v, digits) {
   if (v === undefined || v === null) return '-';
   var d = (digits === undefined) ? 2 : digits;
@@ -430,7 +439,8 @@ function planCell(a) {
     };
   }
   return {
-    text: '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status),
+    text: '<b>' + esc(plan.name || plan.id) + '</b>' + statusBadge(plan.status)
+      + (plan.current_period_end ? '<br><span class="muted">expires ' + esc(fmtDate(plan.current_period_end)) + '</span>' : ''),
     title: 'Plan',
     items: [
       ['planId', plan.id],
@@ -443,6 +453,9 @@ function planCell(a) {
       ['subscription id', plan.subscription_id || ''],
       ['price id', plan.price_id || ''],
       ['created', plan.created_at ? fmtTime(plan.created_at) : ''],
+      ['period start', plan.current_period_start ? fmtTime(plan.current_period_start) : ''],
+      ['period end', plan.current_period_end ? fmtTime(plan.current_period_end) : ''],
+      ['period elapsed', fmtNum(plan.period_elapsed_percent, 2) + '%'],
       ['pending phase', plan.pending_phase ? JSON.stringify(plan.pending_phase) : ''],
     ],
     sections: [],
@@ -498,21 +511,20 @@ function creditsCell(a) {
   };
 }
 
-function periodCell(a) {
-  var plan = a.plan || {};
-  if (!plan.current_period_start) {
-    return { text: '<span class="muted">n/a</span>', title: 'Billing period', items: [['period', 'not reported']], sections: [] };
+function monthlyCell(a) {
+  var bal = a.balance || {};
+  var pct = bal.monthly_consumed_percent;
+  if (pct === undefined || pct === null) {
+    return { text: '<span class="muted">n/a</span>', title: 'Monthly allowance', items: [['reading', 'not available yet']], sections: [] };
   }
-  var dr = plan.days_remaining;
   return {
-    text: '<span class="mono">' + (dr === undefined || dr === null ? '-' : dr + 'd') + '</span>'
-      + '<br>' + bar(plan.period_elapsed_percent) + '<span class="muted">' + fmtNum(plan.period_elapsed_percent, 0) + '%</span>',
-    title: 'Billing period',
+    text: bar(pct) + '<span class="mono ' + pctClass(pct) + '">' + fmtNum(pct, 1) + '%</span>',
+    title: 'Monthly allowance',
     items: [
-      ['start', fmtTime(plan.current_period_start)],
-      ['end', fmtTime(plan.current_period_end)],
-      ['days remaining', (dr === undefined || dr === null) ? '' : String(dr)],
-      ['elapsed', fmtNum(plan.period_elapsed_percent, 2) + '%'],
+      ['consumed', '$' + fmtNum(bal.monthly_consumed, 6)],
+      ['included', '$' + fmtNum(bal.monthly_included, 2)],
+      ['remaining', '$' + fmtNum(bal.monthly_remaining, 6)],
+      ['percent', fmtNum(pct, 2) + '% (included monthly credits consumed)'],
     ],
     sections: [],
   };
@@ -600,7 +612,7 @@ function accountRows(a, payg, index) {
   } else {
     cells.push(windowCell('5-hour window', (a.windows || {})['5h']));
     cells.push(windowCell('Weekly window', (a.windows || {}).weekly));
-    cells.push(periodCell(a));
+    cells.push(monthlyCell(a));
   }
   cells.push(healthCell(a));
 
@@ -656,7 +668,7 @@ function render(status) {
   }
   if (subscription.length) {
     html += '<div class="section-label">Windows enforced (<span class="mono">windowLimits.limited = true</span>) — subscription plans, throttled by rolling 5h/weekly credit-value limits</div>';
-    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Period', 'Health'], false, 0);
+    html += tableHTML(subscription, ['Account', 'Plan', '5h', 'Weekly', 'Monthly', 'Health'], false, 0);
   }
   if (payAsYouGo.length) {
     html += '<div class="section-label">Windows not enforced (<span class="mono">windowLimits.limited = false</span>) — pay-as-you-go, limited by the prepaid credit balance</div>';

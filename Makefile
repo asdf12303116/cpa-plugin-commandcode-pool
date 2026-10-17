@@ -1,4 +1,4 @@
-VERSION ?= 0.2.4
+VERSION ?= 0.2.5
 GO ?= go
 GOARCH ?= amd64
 ARCHS ?= $(GOARCH)

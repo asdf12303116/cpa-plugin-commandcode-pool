@@ -68,14 +68,14 @@ plugins:
 
 ```sh
 make test
-make build VERSION=0.2.4
-make build VERSION=0.2.4 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
-make package VERSION=0.2.4                                       # 生成插件商店 zip 与校验和
-make package VERSION=0.2.4 ARCHS="amd64 arm64"                   # 两种架构
+make build VERSION=0.2.5
+make build VERSION=0.2.5 GOARCH=arm64 CC=aarch64-linux-gnu-gcc  # arm64 交叉编译
+make package VERSION=0.2.5                                       # 生成插件商店 zip 与校验和
+make package VERSION=0.2.5 ARCHS="amd64 arm64"                   # 两种架构
 ```
 
-将 `dist/commandcode-pool-v0.2.4.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
-（arm64 使用 `dist/commandcode-pool-v0.2.4-arm64.so` 与 `plugins/linux/arm64/`）。
+将 `dist/commandcode-pool-v0.2.5.so` 拷贝到 CPA 的 `plugins/linux/amd64/`
+（arm64 使用 `dist/commandcode-pool-v0.2.5-arm64.so` 与 `plugins/linux/arm64/`）。
 插件 ID 由文件名去掉版本后缀得到，因此打包出的 `commandcode-pool.so` 注册为
 `commandcode-pool`。
 
@@ -148,14 +148,14 @@ plugins:
 
 | 套餐类型 | 列 |
 | --- | --- |
-| 订阅制（Go/GOAT/Pro/Max/Ultra/Teams） | Account, Plan, 5h, Weekly, Period, Health |
+| 订阅制（Go/GOAT/Pro/Max/Ultra/Teams） | Account, Plan, 5h, Weekly, Monthly, Health |
 | 按量付费（`individual-provider`） | Account, Plan, Credits, Spend, Health |
 
 订阅制由滚动额度窗口限流，所以行内以 `5h`、`Weekly` 为主（已用金额对比上限，重置时间与
-倒计时在展开的详情面板里），并且**刻意不显示 credits 与 spend 列** —— 订阅制没有充值/预付
-余额，
-日常限制就是窗口，这两列只会造成干扰。按量付费账号没有窗口、由预付余额限流，因此显示
-`Credits`（剩余金额及充值金额）和 `Spend`，并隐藏窗口列。
+倒计时在展开的详情面板里），其后是 `Monthly`（包含的月度额度已用比例）。`Plan` 列同时
+带上套餐到期日（计费周期结束）。订阅制**刻意不显示 credits 与 spend 列** —— 订阅制没有
+充值/预付余额，日常限制就是窗口，这两列只会造成干扰。按量付费账号没有窗口、由预付余额
+限流，因此显示 `Credits`（剩余金额及充值金额）和 `Spend`，并隐藏窗口列。
 
 分组标题直接用该字段本身标注：`windowLimits.limited = true`（**windows enforced**）
 与 `= false` —— 这个字段就是 CommandCode 自己的 plan / 非 plan 判据。当 API 尚未返回该
@@ -191,7 +191,7 @@ key 也会自动触发加载（回车同理），Load 按钮只是兜底。key �
 
 ```json
 {
-  "version": "0.2.4",
+  "version": "0.2.5",
   "generated_at": "2026-09-10T14:20:00Z",
   "api_base_url": "https://api.commandcode.ai",
   "refresh_interval": "3m0s",
@@ -303,7 +303,7 @@ CommandCode 用量 API 有几个坑，插件已显式处理：
 ```sh
 make test     # 格式检查在 CI 中；此处运行 go vet + go test
 make build
-make package VERSION=0.2.4
+make package VERSION=0.2.5
 make clean
 ```
 
